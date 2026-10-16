@@ -1,12 +1,14 @@
 // The only bridge to the Rust core. Every call goes through `invoke`; there is
 // no direct filesystem or SQLite access from the browser context.
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type {
   CaseDto,
   EngineProbeDto,
   EvidenceDto,
   ExportRecordDto,
+  JobDto,
   SegmentDto,
   TranscriptDto,
   TranscriptionOutcomeDto,
@@ -69,6 +71,9 @@ export const api = {
       modelPath,
       useGpu,
     }),
+  cancelTranscription: (jobId: string) =>
+    call<boolean>("cancel_transcription", { jobId }),
+  jobStatus: (jobId: string) => call<JobDto | null>("job_status", { jobId }),
   transcriptForEvidence: (evidenceId: string) =>
     call<TranscriptDto | null>("transcript_for_evidence", { evidenceId }),
   listSegments: (transcriptId: string) =>
@@ -80,10 +85,45 @@ export const api = {
     caseId: string,
     transcriptId: string,
     format: string,
-  ) => call<ExportRecordDto>("export_transcript", { caseId, transcriptId, format }),
+  ) =>
+    call<ExportRecordDto>("export_transcript", {
+      caseId,
+      transcriptId,
+      format,
+    }),
 
   engineProbe: () => call<EngineProbeDto>("engine_probe"),
 };
+
+/** Progress event payload emitted by the Rust core. */
+export interface ProgressEvent {
+  jobId: string;
+  fraction: number | null;
+}
+
+/** Lifecycle event payload (`running` / `finished`). */
+export interface StageEvent {
+  jobId: string;
+  stage: string;
+}
+
+/** Subscribe to transcription progress. Returns an unlisten function. */
+export function onTranscriptionProgress(
+  handler: (event: ProgressEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<ProgressEvent>("transcription:progress", (event) =>
+    handler(event.payload),
+  );
+}
+
+/** Subscribe to transcription stage changes. Returns an unlisten function. */
+export function onTranscriptionStage(
+  handler: (event: StageEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<StageEvent>("transcription:stage", (event) =>
+    handler(event.payload),
+  );
+}
 
 /** Format a whole number of milliseconds as `mm:ss.mmm`. */
 export function formatTime(ms: number): string {

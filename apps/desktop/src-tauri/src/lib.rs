@@ -29,6 +29,8 @@ pub fn run() {
             commands::import_evidence,
             commands::verify_evidence,
             commands::transcribe,
+            commands::cancel_transcription,
+            commands::job_status,
             commands::transcript_for_evidence,
             commands::list_segments,
             commands::edit_segment,

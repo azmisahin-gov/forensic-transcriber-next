@@ -21,8 +21,9 @@ kavramsal referans olarak incelenmiştir.
 | Rust çekirdeği (domain/integrity/storage/media/transcription/export/application) | Çalışıyor, test edildi |
 | Uçtan uca akış (vaka→içe aktarma→hash→transkripsiyon→düzenleme→dışa aktarma→yeniden açma) | Çalışıyor (gerçek FFmpeg, sahte motor) |
 | Tauri 2 masaüstü kabuğu | Derleniyor ve açılıyor (Windows 11'de doğrulandı) |
-| React/TS arayüzü | typecheck + build + 8 test geçiyor |
-| whisper.cpp uçtan uca gerçek transkripsiyon | **Doğrulanmadı** — bu ortamda `whisper-cli` kurulu değil |
+| Arka plan transkripsiyon + ilerleme/iptal | Çalışıyor (gerçek süreç olaylarına bağlı) |
+| React/TS arayüzü | typecheck + build + 11 test geçiyor |
+| whisper.cpp uçtan uca gerçek transkripsiyon | **Doğrulanmadı** — bu ortamda `whisper-cli`/model yok; gated test var |
 | Ses oynatıcı, dalga biçimi, arama, yedekleme, `.ftcase` arşivi, ikinci inceleme | **Henüz yok** (yol haritasında) |
 
 Ayrıntılı aşama durumu ve bilinen sınırlamalar için `docs/` altına bakın.

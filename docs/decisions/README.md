@@ -8,6 +8,7 @@
 | 0004 | Transkripsiyon motoru adaptör arkasında | Kabul |
 | 0005 | Orijinal kanıtın korunması | Kabul |
 | 0006 | Otomatik ve uzman çıktısının ayrılması | Kabul |
+| 0007 | Uzun transkripsiyon çalışmasını kilitten ayırma ve ilerleme olayları | Kabul |
 
 Yeni bir önemli karar alındığında buraya bir dosya ekleyin. Biçim: bağlam,
 karar, sonuçlar, alternatifler.

@@ -1,18 +1,24 @@
 //! Shared application state for the Tauri commands.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use ftn_application::Workspace;
 use ftn_media::FfmpegPaths;
-use ftn_transcription::WhisperCppAdapter;
+use ftn_transcription::{CancelToken, WhisperCppAdapter};
 use tauri::Manager;
 
-/// State managed by Tauri. The workspace is behind a mutex because SQLite
-/// access is serialised and some use cases need `&mut`.
+/// State managed by Tauri.
+///
+/// The workspace is wrapped in an `Arc<Mutex<..>>` so a long-running
+/// transcription can run on a background thread while other commands (listing
+/// cases, reading evidence) still acquire the lock briefly. `jobs` maps a job id
+/// to its cancellation token so the UI can cancel a run in progress.
 pub struct AppState {
-    pub workspace: Mutex<Workspace>,
-    pub engine_path: Mutex<Option<PathBuf>>,
+    pub workspace: Arc<Mutex<Workspace>>,
+    pub engine_path: Arc<Mutex<Option<PathBuf>>>,
+    pub jobs: Arc<Mutex<HashMap<String, CancelToken>>>,
 }
 
 impl AppState {
@@ -31,11 +37,13 @@ impl AppState {
         let workspace = Workspace::open(data_dir, engine)?.with_media(media);
 
         Ok(Self {
-            workspace: Mutex::new(workspace),
-            engine_path: Mutex::new(engine_path),
+            workspace: Arc::new(Mutex::new(workspace)),
+            engine_path: Arc::new(Mutex::new(engine_path)),
+            jobs: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
+    /// Build a fresh engine adapter from the current configured path.
     pub fn engine_adapter(&self) -> WhisperCppAdapter {
         let path = self.engine_path.lock().ok().and_then(|p| p.clone());
         WhisperCppAdapter::new(path)

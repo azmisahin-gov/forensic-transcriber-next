@@ -565,6 +565,19 @@ impl SqliteStore {
         Ok(())
     }
 
+    pub fn get_job(&self, job_id: &JobId) -> Result<Option<TranscriptionJob>, StorageError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT job_id, evidence_id, transcript_id, status, engine, engine_version, model_id,
+                        model_sha256, settings_json, error_code, error_message, started_at, finished_at
+                 FROM transcription_jobs WHERE job_id = ?1",
+                params![job_id.as_str()],
+                map_job,
+            )
+            .optional()?)
+    }
+
     pub fn list_jobs(
         &self,
         evidence_id: &EvidenceId,

@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { api, type ApiError } from "../services/ipc";
+import {
+  api,
+  onTranscriptionProgress,
+  onTranscriptionStage,
+  type ApiError,
+} from "../services/ipc";
 import type {
   CaseDto,
   EvidenceDto,
@@ -20,6 +25,10 @@ export interface WorkspaceController {
   segments: SegmentDto[];
   exports: ExportRecordDto[];
   busy: boolean;
+  /** Id of the running transcription job, when one is in progress. */
+  activeJobId: string | null;
+  /** Latest progress fraction in [0, 1], or null when unknown. */
+  progress: number | null;
   notice: Notice | null;
   refreshCases: () => Promise<void>;
   createCase: (title: string) => Promise<void>;
@@ -27,6 +36,7 @@ export interface WorkspaceController {
   importEvidence: (path: string) => Promise<void>;
   verifyEvidence: (id: string) => Promise<void>;
   transcribe: (evidenceId: string, modelPath: string, useGpu: boolean) => Promise<void>;
+  cancelTranscription: () => Promise<void>;
   editSegment: (segmentId: string, text: string) => Promise<void>;
   exportTranscript: (format: string) => Promise<void>;
   dismissNotice: () => void;
@@ -49,6 +59,8 @@ export function useWorkspace(): WorkspaceController {
   const [exports, setExports] = useState<ExportRecordDto[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
 
   const refreshCases = useCallback(async () => {
     setCases(await api.listCases());
@@ -57,6 +69,37 @@ export function useWorkspace(): WorkspaceController {
   useEffect(() => {
     refreshCases().catch((error: unknown) => setNotice(toNotice(error)));
   }, [refreshCases]);
+
+  // Subscribe to the Rust core's transcription events for the component's life.
+  useEffect(() => {
+    const unlisteners: Array<() => void> = [];
+    let disposed = false;
+    const track = (registration: Promise<() => void>) => {
+      void registration.then((unlisten) => {
+        if (disposed) unlisten();
+        else unlisteners.push(unlisten);
+      });
+    };
+    track(
+      onTranscriptionProgress((event) => {
+        setActiveJobId(event.jobId);
+        setProgress(event.fraction);
+      }),
+    );
+    track(
+      onTranscriptionStage((event) => {
+        setActiveJobId(event.jobId);
+        if (event.stage === "finished") {
+          setActiveJobId(null);
+          setProgress(null);
+        }
+      }),
+    );
+    return () => {
+      disposed = true;
+      unlisteners.forEach((unlisten) => unlisten());
+    };
+  }, []);
 
   const loadCaseDetail = useCallback(async (caseDto: CaseDto) => {
     const evidenceList = await api.listEvidence(caseDto.id);
@@ -137,6 +180,8 @@ export function useWorkspace(): WorkspaceController {
         const outcome = await api.transcribe(evidenceId, modelPath, useGpu);
         setTranscript(outcome.transcript);
         setSegments(outcome.segments);
+        setActiveJobId(null);
+        setProgress(null);
         const skipped = outcome.skippedSegments;
         setNotice({
           kind: "info",
@@ -146,6 +191,22 @@ export function useWorkspace(): WorkspaceController {
         });
       }),
     [run],
+  );
+
+  const cancelTranscription = useCallback(
+    (): Promise<void> =>
+      run(async () => {
+        if (!activeJobId) {
+          setNotice({ kind: "info", message: "İptal edilecek etkin iş yok." });
+          return;
+        }
+        const requested = await api.cancelTranscription(activeJobId);
+        setNotice({
+          kind: "info",
+          message: requested ? "İptal istendi." : "İş bulunamadı.",
+        });
+      }),
+    [run, activeJobId],
   );
 
   const editSegment = useCallback(
@@ -189,6 +250,8 @@ export function useWorkspace(): WorkspaceController {
     segments,
     exports,
     busy,
+    activeJobId,
+    progress,
     notice,
     refreshCases,
     createCase,
@@ -196,6 +259,7 @@ export function useWorkspace(): WorkspaceController {
     importEvidence,
     verifyEvidence,
     transcribe,
+    cancelTranscription,
     editSegment,
     exportTranscript,
     dismissNotice,

@@ -1,58 +1,65 @@
 # Proje Durumu
 
-Son güncelleme: Faz 1–2 tamamlandı, Faz 3–6 kısmi.
+Son güncelleme: CI düzeltmesi + gerçek transkripsiyon yolu sertleştirmesi +
+arka plan ilerleme/iptal. Commit: `f7b537c` sonrası.
 
-## Tamamlanma ölçütleri (dürüst durum)
+Bu belge, her işlevi **uygulanmış / kısmi / uygulanmamış** olarak açıkça ayırır.
+Test edilmemiş hiçbir özellik tamamlanmış gösterilmez.
 
-| Ölçüt | Durum | Kanıt / Not |
+## CI düzeltmesi
+
+İlk CI koşusu (`38965841270`) Rust işinde başarısızdı. Kök neden: iş akışı
+`cargo clippy --workspace --default-members ...` ve `cargo test --workspace
+--default-members ...` komutlarını kullanıyordu; **cargo'da `--default-members`
+diye bir argüman yoktur** ve `--workspace` ile birlikte de geçersizdir. Komut
+daha clippy çalışmadan hata veriyordu (yerelde birebir doğrulandı).
+
+Düzeltme: `--workspace --exclude forensic-transcriber-next` kullanıldı. Tauri
+kabuğu Linux'ta `webkit2gtk` sistem kütüphaneleri gerektirdiğinden Linux
+işlerinden hariç tutuldu; ayrı Windows işinde derleniyor.
+
+## İşlev durumları
+
+| İşlev | Durum | Not |
 | --- | --- | --- |
-| Yeni proje eski depodan bağımsız | ✅ | Ayrı dizin + yeni yerel git deposu |
-| Proje yapısı ve mimari belgeler mevcut | ✅ | `docs/architecture/` |
-| Temel masaüstü uygulaması açılıyor | ✅ | Tauri kabuğu derlendi, çalıştırıldı, DB oluştu (Windows 11) |
-| Vaka oluşturma ve yeniden açma | ✅ | `e2e_pipeline` testi |
-| Ses içe aktarma | ✅ | Gerçek FFmpeg ile E2E testi |
-| Orijinal ve türetilmiş medya ayrılmış | ✅ | `evidence/original/`, `derived/` |
-| SHA-256 doğrulaması | ✅ | `ftn-integrity` + E2E + kurcalama testi |
-| SQLite kayıtları ve migrasyonlar | ✅ | `ftn-storage` testleri, `user_version` |
-| Transkripsiyon servisi gerçek motorla entegre | ⚠️ Kısmi | Adaptör + ayrıştırıcı test edildi; gerçek `whisper-cli` bu ortamda yok |
-| Model yokluğunda dürüst hata davranışı | ✅ | `missing_engine_fails_honestly` testi |
-| Transkript düzenleme ve sürüm geçmişi | ✅ | `original_text`, `transcript_revisions` |
-| TXT, SRT, JSON dışa aktarma | ✅ | `ftn-export` + E2E (HTML de var) |
-| Veri kaybına karşı dayanıklılık testleri | ✅ | `resilience.rs`, storage entegrasyonu |
-| Güvenli süreç + Tauri yetki sınırları | ✅ | `Command::args`, `core:default`, kısıtlı CSP |
-| Derleme ve otomatik test sonuçları doğrulanmış | ✅ | Aşağıdaki bölüme bakın |
-| Kurulum/geliştirme talimatları | ✅ | `README.md`, `CONTRIBUTING.md` |
-| Çözülememiş sorunlar listelenmiş | ✅ | Aşağıda |
+| Rust çekirdeği (domain/integrity/storage/media/transcription/export/application) | **Uygulanmış** | 83 test |
+| Uçtan uca akış (vaka→içe aktarma→hash→transkripsiyon→düzenleme→dışa aktarma→yeniden açma) | **Uygulanmış** | Gerçek FFmpeg + sahte motor |
+| SHA-256 bütünlük doğrulama | **Uygulanmış** | Kurcalama/eksik testleri |
+| Tauri kabuğu + React arayüzü | **Uygulanmış** | Derlenip açılıyor (Win11) |
+| whisper.cpp CLI sözleşmesi (argüman, çıktı yolu, JSON ayrıştırma) | **Uygulanmış** | Birim + gated gerçek test |
+| **Gerçek transkripsiyon motoru doğrulaması (uçtan uca)** | **Kısmi** | Kod hazır; bu makinede `whisper-cli` + model yok, gerçek koşu yapılmadı. `whisper_real.rs` env ile koşar. |
+| İlerleme bildirimi (arka plan) | **Uygulanmış** | `transcription:progress` Tauri event'i, gerçek süreç stderr'ine bağlı |
+| İptal | **Uygulanmış** | `cancel_transcription` + `CancelToken`; alt süreç öldürülür, yarım çıktı temizlenir |
+| İş durumu sorgulama | **Uygulanmış** | `job_status`, kalıcı `transcription_jobs` |
+| Uzun iş sırasında arayüzün bloke olmaması | **Uygulanmış** | begin/execute/complete ayrımı; kilit yalnızca kısa DB fazlarında |
+| Dosya seçme penceresi | **Uygulanmadı** | İçe aktarma yol metniyle (bilinçli; en az yetki) |
+| Ses oynatma ve dalga biçimi | **Uygulanmadı** | |
+| Vaka arama | **Uygulanmadı** | |
+| Vaka yedekleme ve geri yükleme | **Uygulanmadı** | |
+| `.ftcase` arşivi | **Uygulanmadı** | |
+| İkinci inceleme | **Uygulanmadı** | |
+| Paketleme ve kod imzalama | **Uygulanmadı** | İmzalı gibi davranılmıyor |
+| Türkçe transkripsiyon doğruluk testi | **Uygulanmadı** | Doğrulanmış referans veri kümesi yok; doğruluk iddiası yok |
 
-## Doğrulanan komut sonuçları (bu ortamda)
+## Bu ortamda doğrulanan komut sonuçları
 
 | Komut | Sonuç |
 | --- | --- |
-| `cargo test --workspace` | Geçti — 74 test (çekirdek + entegrasyon) |
-| `cargo fmt --all --check` | Geçti (0 fark) |
-| `cargo clippy --workspace --all-targets -- -D warnings` | Geçti (0 uyarı) |
-| `npm run lint` | Geçti |
-| `npm run typecheck` (strict) | Geçti |
-| `npm run test` | Geçti — 8 test |
-| `npm run build` | Geçti (Vite üretim derlemesi) |
-| `cargo build -p forensic-transcriber-next` | Geçti (14.8 MB exe) |
-| Masaüstü smoke (exe başlatma) | Geçti — pencere açıldı, `case.sqlite` + migrasyonlar oluştu |
+| `cargo fmt --all --check` | Geçti |
+| `cargo clippy --workspace --exclude forensic-transcriber-next --all-targets -- -D warnings` (CI ile aynı) | Geçti |
+| `cargo clippy --workspace --all-targets -- -D warnings` (Tauri dahil, yerel) | Geçti |
+| `cargo test --workspace --exclude forensic-transcriber-next` | Geçti — 83 test (whisper_real: SKIP) |
+| `cargo build -p forensic-transcriber-next` | Geçti |
+| `npm run lint` / `typecheck` / `test` (11) / `build` | Geçti |
+| Gerçek `whisper-cli` entegrasyonu | **Çalıştırılmadı** — binary/model yok |
 
-## Bilinen sorunlar / eksikler
+## Bilinen sorunlar ve boşluklar
 
-1. **whisper.cpp uçtan uca doğrulanmadı.** `whisper-cli` bu ortamda kurulu
-   değil. Argüman üretimi ve JSON ayrıştırma birim testleriyle doğrulandı; gerçek
-   koşu test edilmedi.
-2. **Ses oynatıcı, dalga biçimi, klavye kısayolları** henüz yok (Faz 4).
-3. **Vaka arşivi (`.ftcase`), yedekleme/geri yükleme** henüz yok (Faz 3).
-4. **Arama, ikinci inceleme onayı** henüz yok.
-5. **Dosya seçici** yok; içe aktarma yol metniyle yapılıyor (Tauri diyalog
-   eklentisi bilinçli olarak eklenmedi; en az yetki ilkesi).
-6. **Paketleme/imzalama** yapılmadı; imzalı gibi davranılmıyor.
-7. **npm audit** dev bağımlılıklarında uyarılar bildiriyor; incelenmesi gerekir.
-8. **Gerçek Türkçe doğruluk ölçümü** yapılmadı; doğruluk iddiası yok.
-9. **Yerel ilk git commit'i yapılmadı** (sistem kuralı gereği; istenirse
-   yapılabilir).
+1. Gerçek whisper.cpp koşusu bu ortamda doğrulanmadı (yukarıda).
+2. Sahte motor testi gerçek motor testi olarak sunulmaz.
+3. Arayüz etkileşim testleri (oynatıcı, klavye) henüz yok.
+4. `npm audit` dev bağımlılıklarında uyarılar var; incelenmesi gerekir.
+5. Yerel git commit'i bu turda yapılacak (istenen kapsamda).
 
 ## Öncelik sırası
 

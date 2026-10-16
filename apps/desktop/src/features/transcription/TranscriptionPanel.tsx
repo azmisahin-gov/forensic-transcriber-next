@@ -15,7 +15,7 @@ export function TranscriptionPanel({
   const [modelPath, setModelPath] = useState("");
   const [useGpu, setUseGpu] = useState(false);
   const [probe, setProbe] = useState<EngineProbeDto | null>(null);
-  const { busy, transcript } = controller;
+  const { busy, transcript, activeJobId, progress } = controller;
 
   useEffect(() => {
     api
@@ -75,12 +75,33 @@ export function TranscriptionPanel({
         </button>
         <button
           type="button"
+          disabled={!activeJobId}
+          onClick={() => void controller.cancelTranscription()}
+        >
+          İptal
+        </button>
+        <button
+          type="button"
           disabled={busy || !selected}
           onClick={() => selected && void controller.verifyEvidence(selected.id)}
         >
           Bütünlüğü doğrula
         </button>
       </div>
+
+      {activeJobId ? (
+        <div className="progress" role="progressbar" aria-label="Transkripsiyon ilerlemesi">
+          <div
+            className={progress === null ? "progress-bar indeterminate" : "progress-bar"}
+            style={progress === null ? undefined : { width: `${Math.round(progress * 100)}%` }}
+          />
+          <span className="progress-label">
+            {progress === null
+              ? "İlerleme bilgisi bekleniyor…"
+              : `%${Math.round(progress * 100)}`}
+          </span>
+        </div>
+      ) : null}
 
       {transcript ? (
         <p className="engine-status ok">

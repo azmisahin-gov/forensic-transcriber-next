@@ -37,8 +37,10 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --default-members --all-targets -- -D warnings
-      - run: cargo test --workspace --default-members
+      # The Tauri shell is excluded here: on Linux it needs webkit2gtk system
+      # libraries. It is compiled separately in the Windows job below.
+      - run: cargo clippy --workspace --exclude forensic-transcriber-next --all-targets -- -D warnings
+      - run: cargo test --workspace --exclude forensic-transcriber-next
 
   # Windows packaging requires the WebView2 runtime and native build tools. This
   # job checks that the Tauri shell compiles; producing a signed installer is a

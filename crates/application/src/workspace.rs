@@ -11,7 +11,7 @@ use ftn_domain::evidence::{
     DerivedKind, DerivedMediaAsset, EvidenceFile, IntegrityStatus, MediaMetadata,
 };
 use ftn_domain::export_record::{ExportFormat, ExportRecord};
-use ftn_domain::ids::{CaseId, DerivedAssetId, EvidenceId, SegmentId, TranscriptId};
+use ftn_domain::ids::{CaseId, DerivedAssetId, EvidenceId, JobId, SegmentId, TranscriptId};
 use ftn_domain::job::TranscriptionJob;
 use ftn_domain::revision::{RevisionState, TranscriptRevision};
 use ftn_domain::time::Timestamp;
@@ -21,7 +21,9 @@ use ftn_export::{self as export_engine};
 use ftn_integrity as integrity;
 use ftn_media::{probe_media, FfmpegPaths};
 use ftn_storage::{SqliteStore, StorageError};
-use ftn_transcription::{new_cancel_token, CancelToken, EngineAdapter, TranscriptionRequest};
+use ftn_transcription::{
+    new_cancel_token, CancelToken, EngineAdapter, TranscriptionOutput, TranscriptionRequest,
+};
 
 use crate::error::AppError;
 use crate::paths::WorkspacePaths;
@@ -260,20 +262,18 @@ impl Workspace {
 
     // ---- transcription ---------------------------------------------------
 
-    /// Run the ASR engine on an evidence file and persist the result.
+    /// Prepare a transcription without running the engine (short DB phase).
     ///
-    /// A transcript is only created when an engine actually produces segments.
-    /// If the engine is missing, the job is recorded as failed with a stable
-    /// code and no transcript is written. An existing transcript is never
-    /// silently overwritten.
-    pub fn start_transcription(
+    /// Validates the input, records the start, creates a queued→running job and
+    /// returns a [`TranscriptionPlan`] the caller executes **outside** any lock.
+    /// Persisting the result happens later in [`Self::complete_transcription`],
+    /// so the workspace mutex is never held for the whole engine run.
+    pub fn begin_transcription(
         &mut self,
         evidence_id: &EvidenceId,
         model_path: &Path,
         use_gpu: bool,
-        cancel: CancelToken,
-        progress: &mut dyn FnMut(Option<f32>),
-    ) -> Result<TranscriptionOutcome, AppError> {
+    ) -> Result<TranscriptionPlan, AppError> {
         let evidence = self.get_evidence(evidence_id)?;
         let case_id = evidence.case_id.clone();
 
@@ -294,45 +294,20 @@ impl Workspace {
             .with_evidence(evidence_id.clone()),
         );
 
-        // Prepare the 16 kHz mono working copy. The stored original is untouched.
         let working_path = self.paths.derived_wav_path(&case_id, evidence_id);
-        let input_for_engine: PathBuf = if evidence
+        let needs_transcode = !(evidence
             .metadata
             .format
             .as_deref()
             .map(|f| f.contains("wav"))
             .unwrap_or(false)
             && evidence.metadata.sample_rate == Some(16_000)
-            && evidence.metadata.channels == Some(1)
-        {
-            PathBuf::from(&evidence.stored_path)
-        } else {
-            let media = self
-                .media
-                .as_ref()
-                .ok_or_else(|| AppError::MediaToolMissing("ffmpeg".to_string()))?;
-            self.paths.ensure_case_dirs(&case_id)?;
-            ftn_media::ffmpeg::transcode_to_16k_mono_wav(
-                &media.ffmpeg,
-                Path::new(&evidence.stored_path),
-                &working_path,
-            )?;
-            if let Ok(hash) = integrity::hash_file(&working_path) {
-                let asset = DerivedMediaAsset {
-                    id: DerivedAssetId::new(),
-                    evidence_id: evidence_id.clone(),
-                    path: working_path.display().to_string(),
-                    kind: DerivedKind::TranscriptionInput,
-                    format: "wav".to_string(),
-                    sample_rate: 16000,
-                    channels: 1,
-                    sha256: hash,
-                    generator: "ffmpeg -vn -ac 1 -ar 16000 -c:a pcm_s16le".to_string(),
-                    created_at: Timestamp::now(),
-                };
-                let _ = self.store.insert_derived_asset(&asset);
-            }
+            && evidence.metadata.channels == Some(1));
+
+        let input_for_engine = if needs_transcode {
             working_path.clone()
+        } else {
+            PathBuf::from(&evidence.stored_path)
         };
 
         let request = TranscriptionRequest {
@@ -355,30 +330,51 @@ impl Workspace {
         });
         self.store.insert_job(&job)?;
 
-        let output = match self.engine.transcribe(&request, &cancel, progress) {
-            Ok(output) => output,
-            Err(err) => {
-                job.fail(err.code(), err.to_string());
-                self.store.update_job(&job)?;
-                self.record(
-                    AuditEvent::new(
-                        case_id.clone(),
-                        AuditAction::TranscribeFailed,
-                        &self.app_version,
-                    )
-                    .with_evidence(evidence_id.clone())
-                    .with_change(None, Some(serde_json::json!({ "code": err.code() }))),
-                );
-                return Err(AppError::Engine(err));
-            }
-        };
+        let transcript = Transcript::new(evidence_id.clone(), "tr");
 
-        // Build validated segments, dropping any with invalid timing.
-        let mut transcript = Transcript::new(evidence_id.clone(), "tr");
+        Ok(TranscriptionPlan {
+            case_id,
+            evidence,
+            transcript,
+            job,
+            engine: self.engine.clone(),
+            media: self.media.clone(),
+            working_path,
+            needs_transcode,
+            request,
+        })
+    }
+
+    /// Persist the result of a completed engine run (short DB phase).
+    pub fn complete_transcription(
+        &mut self,
+        plan: &TranscriptionPlan,
+        output: TranscriptionOutput,
+    ) -> Result<TranscriptionOutcome, AppError> {
+        if plan.needs_transcode {
+            self.paths.ensure_case_dirs(&plan.case_id)?;
+            if let Ok(hash) = integrity::hash_file(&plan.working_path) {
+                let asset = DerivedMediaAsset {
+                    id: DerivedAssetId::new(),
+                    evidence_id: plan.evidence.id.clone(),
+                    path: plan.working_path.display().to_string(),
+                    kind: DerivedKind::TranscriptionInput,
+                    format: "wav".to_string(),
+                    sample_rate: 16000,
+                    channels: 1,
+                    sha256: hash,
+                    generator: "ffmpeg -vn -ac 1 -ar 16000 -c:a pcm_s16le".to_string(),
+                    created_at: Timestamp::now(),
+                };
+                let _ = self.store.insert_derived_asset(&asset);
+            }
+        }
+
+        let mut transcript = plan.transcript.clone();
         transcript.engine = output
             .engine_version
             .clone()
-            .or_else(|| Some(self.engine.id().to_string()));
+            .or_else(|| Some(plan.engine.id().to_string()));
         transcript.model_id = output.model_id.clone();
 
         let mut segments = Vec::with_capacity(output.segments.len());
@@ -400,17 +396,17 @@ impl Workspace {
             }
         }
 
-        // Persist inside the store's transaction for segments + revision.
-        self.store.create_transcript(&case_id, &transcript)?;
+        self.store.create_transcript(&plan.case_id, &transcript)?;
         self.store.replace_segments(&transcript.id, &segments)?;
         let revision = TranscriptRevision::new(
             transcript.id.clone(),
-            Some(job.id.clone()),
+            Some(plan.job.id.clone()),
             RevisionState::Machine,
             segments.clone(),
         );
         self.store.append_revision(&revision)?;
 
+        let mut job = plan.job.clone();
         job.succeed(transcript.id.clone());
         if let Some(engine) = job.engine.as_mut() {
             engine.engine_version = output.engine_version.clone();
@@ -419,17 +415,21 @@ impl Workspace {
         self.store.update_job(&job)?;
 
         self.record(
-            AuditEvent::new(case_id, AuditAction::TranscribeSucceeded, &self.app_version)
-                .with_evidence(evidence_id.clone())
-                .with_transcript(transcript.id.clone())
-                .with_change(
-                    None,
-                    Some(serde_json::json!({
-                        "segments": segments.len(),
-                        "skipped": skipped,
-                        "model_id": output.model_id,
-                    })),
-                ),
+            AuditEvent::new(
+                plan.case_id.clone(),
+                AuditAction::TranscribeSucceeded,
+                &self.app_version,
+            )
+            .with_evidence(plan.evidence.id.clone())
+            .with_transcript(transcript.id.clone())
+            .with_change(
+                None,
+                Some(serde_json::json!({
+                    "segments": segments.len(),
+                    "skipped": skipped,
+                    "model_id": output.model_id,
+                })),
+            ),
         );
 
         Ok(TranscriptionOutcome {
@@ -438,6 +438,58 @@ impl Workspace {
             job,
             skipped_segments: skipped,
         })
+    }
+
+    /// Record a failed or cancelled run (short DB phase). No transcript is written.
+    pub fn fail_transcription(
+        &mut self,
+        plan: &TranscriptionPlan,
+        code: &str,
+        message: &str,
+    ) -> Result<(), AppError> {
+        let mut job = plan.job.clone();
+        if code == "CANCELLED" {
+            job.cancel_with(code, message);
+        } else {
+            job.fail(code, message);
+        }
+        self.store.update_job(&job)?;
+        let action = if code == "CANCELLED" {
+            AuditAction::TranscribeCancelled
+        } else {
+            AuditAction::TranscribeFailed
+        };
+        self.record(
+            AuditEvent::new(plan.case_id.clone(), action, &self.app_version)
+                .with_evidence(plan.evidence.id.clone())
+                .with_change(None, Some(serde_json::json!({ "code": code }))),
+        );
+        Ok(())
+    }
+
+    /// Convenience: begin + execute + complete in one call. Used by tests and by
+    /// callers that do not need to release the lock between phases.
+    pub fn start_transcription(
+        &mut self,
+        evidence_id: &EvidenceId,
+        model_path: &Path,
+        use_gpu: bool,
+        cancel: CancelToken,
+        progress: &mut dyn FnMut(Option<f32>),
+    ) -> Result<TranscriptionOutcome, AppError> {
+        let plan = self.begin_transcription(evidence_id, model_path, use_gpu)?;
+        match execute_transcription(&plan, &cancel, progress) {
+            Ok(output) => self.complete_transcription(&plan, output),
+            Err(err) => {
+                let _ = self.fail_transcription(&plan, err.code(), &err.to_string());
+                Err(err)
+            }
+        }
+    }
+
+    /// Load a single job by id (used by the UI to poll status).
+    pub fn get_job(&self, job_id: &JobId) -> Result<Option<TranscriptionJob>, AppError> {
+        Ok(self.store.get_job(job_id)?)
     }
 
     pub fn transcript_for_evidence(
@@ -580,6 +632,70 @@ fn not_found(err: StorageError, mapped: AppError) -> AppError {
         StorageError::NotFound { .. } => mapped,
         other => AppError::Storage(other),
     }
+}
+
+/// A prepared transcription that can be executed without the workspace lock.
+///
+/// It carries everything the engine and media layers need: the stored paths,
+/// whether a working copy must be produced, the cloned engine adapter and the
+/// already-persisted job. The database is only touched again in
+/// [`Workspace::complete_transcription`] / [`Workspace::fail_transcription`].
+pub struct TranscriptionPlan {
+    pub case_id: CaseId,
+    pub evidence: EvidenceFile,
+    pub transcript: Transcript,
+    pub job: TranscriptionJob,
+    pub engine: Arc<dyn EngineAdapter>,
+    pub media: Option<FfmpegPaths>,
+    pub working_path: PathBuf,
+    pub needs_transcode: bool,
+    pub request: TranscriptionRequest,
+}
+
+impl TranscriptionPlan {
+    /// The job id as a string, for correlating progress and cancel requests.
+    pub fn job_id(&self) -> String {
+        self.job.id.to_string()
+    }
+}
+
+impl std::fmt::Debug for TranscriptionPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TranscriptionPlan")
+            .field("case_id", &self.case_id)
+            .field("evidence_id", &self.evidence.id)
+            .field("job_id", &self.job.id)
+            .field("needs_transcode", &self.needs_transcode)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Produce the working audio if needed and run the engine.
+///
+/// This function touches no database state, so it can run on a background thread
+/// without holding the workspace mutex.
+pub fn execute_transcription(
+    plan: &TranscriptionPlan,
+    cancel: &CancelToken,
+    progress: &mut dyn FnMut(Option<f32>),
+) -> Result<TranscriptionOutput, AppError> {
+    if plan.needs_transcode {
+        let media = plan
+            .media
+            .as_ref()
+            .ok_or_else(|| AppError::MediaToolMissing("ffmpeg".to_string()))?;
+        if let Some(parent) = plan.working_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        ftn_media::ffmpeg::transcode_to_16k_mono_wav(
+            &media.ffmpeg,
+            Path::new(&plan.evidence.stored_path),
+            &plan.working_path,
+        )?;
+    }
+    plan.engine
+        .transcribe(&plan.request, cancel, progress)
+        .map_err(AppError::Engine)
 }
 
 /// Convenience: a fresh cancellation token.

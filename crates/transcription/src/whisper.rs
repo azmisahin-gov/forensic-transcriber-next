@@ -115,76 +115,104 @@ impl EngineAdapter for WhisperCppAdapter {
         let binary = self.binary_or_err()?;
         request.validate(Some(binary))?;
 
-        let output_base = request.input.with_file_name(format!(
-            "{}.ftn-output",
-            request
-                .input
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("audio")
-        ));
-        let json_path = output_base.with_extension("json");
-
+        // whisper.cpp writes `<output_file>.<ext>` for the base given to `-of`,
+        // so all engine output goes to a private temporary directory and the JSON
+        // path is the base with `.json` appended (not `with_extension`, which
+        // would clobber the last dot-component of the base).
+        let run_dir = unique_run_dir()?;
+        let output_base = run_dir.join("transcript");
+        let json_path = json_output_path(&output_base);
         let args = Self::build_args(request, &output_base);
+
         let mut child = Command::new(binary)
             .args(&args)
             .stdin(Stdio::null())
-            .stdout(Stdio::piped())
+            // JSON goes to a file; stdout is not used. Nulling it removes any
+            // chance of the child blocking on a full stdout pipe.
+            .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()?;
 
-        // Stream stderr for progress and cancellation.
-        if let Some(stderr) = child.stderr.take() {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().map_while(Result::ok) {
-                if cancel.load(Ordering::Relaxed) {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    let _ = std::fs::remove_file(&json_path);
-                    return Err(EngineError::Cancelled);
+        // Drain stderr on a separate thread so the child can never block on a
+        // full stderr pipe and so cancellation is observed promptly.
+        let (tx, rx) = std::sync::mpsc::channel::<f32>();
+        let reader = child.stderr.take().map(|stderr| {
+            std::thread::spawn(move || {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines().map_while(Result::ok) {
+                    if let Some(p) = parse_progress_line(&line) {
+                        let _ = tx.send(p);
+                    }
                 }
-                if let Some(p) = parse_progress_line(&line) {
-                    progress(Some(p));
-                }
+            })
+        });
+
+        let exit_status = loop {
+            while let Ok(p) = rx.try_recv() {
+                progress(Some(p));
             }
+            if cancel.load(Ordering::Relaxed) {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            match child.try_wait()? {
+                Some(status) => break Some(status),
+                None => std::thread::sleep(std::time::Duration::from_millis(100)),
+            }
+        };
+        while let Ok(p) = rx.try_recv() {
+            progress(Some(p));
+        }
+        if let Some(handle) = reader {
+            let _ = handle.join();
         }
 
-        let status = child.wait()?;
-        if !status.success() {
-            let _ = std::fs::remove_file(&json_path);
-            return Err(EngineError::ProcessFailed {
+        let result = match exit_status {
+            // `None` is only produced by cancellation.
+            None => Err(EngineError::Cancelled),
+            Some(status) if !status.success() => Err(EngineError::ProcessFailed {
                 code: status.code().unwrap_or(-1),
-                stderr: "see engine diagnostics".to_string(),
-            });
-        }
-
-        let json = std::fs::read_to_string(&json_path).map_err(|e| {
-            EngineError::Parse(format!(
-                "engine output not found ({}): {e}",
-                json_path.display()
-            ))
-        })?;
-        let _ = std::fs::remove_file(&json_path);
-
-        let segments = parse_whisper_json(&json)?;
-        progress(Some(1.0));
-
-        Ok(TranscriptionOutput {
-            segments,
-            engine_version: None,
-            model_id: request
-                .model
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .map(|s| s.to_string()),
-            settings: serde_json::json!({
-                "language": request.language,
-                "threads": request.threads,
-                "use_gpu": request.use_gpu,
-                "engine": "whisper.cpp",
+                stderr: "engine diagnostics were not captured to avoid leaking audio content"
+                    .to_string(),
             }),
-        })
+            Some(_) => {
+                let json = std::fs::read_to_string(&json_path).map_err(|e| {
+                    EngineError::Parse(format!(
+                        "engine output not found ({}): {e}",
+                        json_path.display()
+                    ))
+                })?;
+                parse_whisper_document(&json).map(|doc| doc.into_output(request))
+            }
+        };
+
+        // Always remove the temporary run directory, on success, failure or cancel.
+        let _ = std::fs::remove_dir_all(&run_dir);
+
+        let output = result?;
+        progress(Some(1.0));
+        Ok(output)
     }
+}
+
+/// The `<base>.json` path that `whisper-cli -of <base>` writes.
+fn json_output_path(base: &Path) -> PathBuf {
+    let mut os = base.as_os_str().to_os_string();
+    os.push(".json");
+    PathBuf::from(os)
+}
+
+/// Create a unique private directory for one engine run.
+fn unique_run_dir() -> Result<PathBuf, EngineError> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("ftn-asr-{}-{}", std::process::id(), nanos));
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
 }
 
 /// Parse `whisper-cli` progress lines such as `progress = 42%`.
@@ -199,9 +227,46 @@ fn parse_progress_line(line: &str) -> Option<f32> {
     pct.parse::<f32>().ok().map(|v| (v / 100.0).clamp(0.0, 1.0))
 }
 
+/// A parsed whisper.cpp JSON document.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WhisperDocument {
+    pub segments: Vec<RawSegment>,
+    /// Model identifier reported by the engine when present.
+    pub model_id: Option<String>,
+    /// The engine's `systeminfo` string (version/backends), when present.
+    pub system_info: Option<String>,
+}
+
+impl WhisperDocument {
+    /// Turn the document into the engine-agnostic output, filling in the model
+    /// id from the model file name when the engine did not report one.
+    pub fn into_output(self, request: &TranscriptionRequest) -> TranscriptionOutput {
+        let model_id = self.model_id.or_else(|| {
+            request
+                .model
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+        });
+        TranscriptionOutput {
+            segments: self.segments,
+            engine_version: None,
+            model_id,
+            settings: serde_json::json!({
+                "language": request.language,
+                "threads": request.threads,
+                "use_gpu": request.use_gpu,
+                "engine": "whisper.cpp",
+                "system_info": self.system_info,
+            }),
+        }
+    }
+}
+
 /// Parse the JSON produced by `whisper-cli -oj`. The documented shape is:
-/// `{ "transcription": [ { "offsets": { "from": ms, "to": ms }, "text": "..." } ] }`.
-pub fn parse_whisper_json(json: &str) -> Result<Vec<RawSegment>, EngineError> {
+/// `{ "transcription": [ { "offsets": { "from": ms, "to": ms }, "text": "..." } ],
+///    "model": { ... }, "systeminfo": "..." }`.
+pub fn parse_whisper_document(json: &str) -> Result<WhisperDocument, EngineError> {
     let value: Value = serde_json::from_str(json).map_err(|e| EngineError::Parse(e.to_string()))?;
     let transcription = value
         .get("transcription")
@@ -236,7 +301,36 @@ pub fn parse_whisper_json(json: &str) -> Result<Vec<RawSegment>, EngineError> {
             confidence: None,
         });
     }
-    Ok(segments)
+
+    let model_id = value.get("model").and_then(extract_model_id);
+    let system_info = value
+        .get("systeminfo")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    Ok(WhisperDocument {
+        segments,
+        model_id,
+        system_info,
+    })
+}
+
+/// Parse just the segments (kept for callers that only need them).
+pub fn parse_whisper_json(json: &str) -> Result<Vec<RawSegment>, EngineError> {
+    Ok(parse_whisper_document(json)?.segments)
+}
+
+/// Extract a model id from the `model` object, tolerating the two shapes the
+/// engine has used (`type` as a string, or `type.name`).
+fn extract_model_id(model: &Value) -> Option<String> {
+    let type_field = model.get("type")?;
+    if let Some(s) = type_field.as_str() {
+        return Some(s.to_string());
+    }
+    type_field
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 /// Find a version-looking line in `--help` output.
@@ -316,6 +410,64 @@ mod tests {
     #[test]
     fn missing_transcription_array_is_an_error() {
         assert!(parse_whisper_json("{}").is_err());
+    }
+
+    #[test]
+    fn json_output_path_appends_extension_without_clobbering_dots() {
+        // The regression this guards: `with_extension("json")` would turn
+        // `a.16k.ftn-output` into `a.16k.json`, but whisper writes
+        // `a.16k.ftn-output.json`.
+        let base = Path::new("C:/tmp/run/transcript");
+        assert_eq!(
+            json_output_path(base).to_string_lossy(),
+            "C:/tmp/run/transcript.json"
+        );
+        let dotted = Path::new("C:/tmp/a.16k.ftn-output");
+        assert_eq!(
+            json_output_path(dotted).to_string_lossy(),
+            "C:/tmp/a.16k.ftn-output.json"
+        );
+    }
+
+    #[test]
+    fn parses_model_and_systeminfo_when_present() {
+        let json = r#"{
+            "systeminfo": "whisper.cpp 1.9.4, CUDA : 0",
+            "model": { "type": { "name": "large-v3-turbo" } },
+            "transcription": [ {"offsets":{"from":0,"to":1000},"text":"a"} ]
+        }"#;
+        let doc = parse_whisper_document(json).unwrap();
+        assert_eq!(doc.model_id.as_deref(), Some("large-v3-turbo"));
+        assert_eq!(
+            doc.system_info.as_deref(),
+            Some("whisper.cpp 1.9.4, CUDA : 0")
+        );
+    }
+
+    #[test]
+    fn parses_string_model_type() {
+        let json = r#"{"model":{"type":"small"},"transcription":[{"offsets":{"from":0,"to":1},"text":"x"}]}"#;
+        assert_eq!(
+            parse_whisper_document(json).unwrap().model_id.as_deref(),
+            Some("small")
+        );
+    }
+
+    #[test]
+    fn document_into_output_falls_back_to_model_file_name() {
+        let req = TranscriptionRequest::new(EvidenceId::new(), "in.wav", "C:/m/ggml-medium.bin");
+        let doc = WhisperDocument {
+            segments: vec![RawSegment {
+                start_ms: 0,
+                end_ms: 1,
+                text: "x".to_string(),
+                confidence: None,
+            }],
+            model_id: None,
+            system_info: None,
+        };
+        let out = doc.into_output(&req);
+        assert_eq!(out.model_id.as_deref(), Some("ggml-medium"));
     }
 
     #[test]

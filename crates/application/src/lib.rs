@@ -7,4 +7,6 @@ pub mod workspace;
 
 pub use error::AppError;
 pub use paths::WorkspacePaths;
-pub use workspace::{cancel_token, TranscriptionOutcome, Workspace};
+pub use workspace::{
+    cancel_token, execute_transcription, TranscriptionOutcome, TranscriptionPlan, Workspace,
+};

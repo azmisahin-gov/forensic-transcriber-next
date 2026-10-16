@@ -116,6 +116,15 @@ impl TranscriptionJob {
         self.status = JobStatus::Cancelled;
         self.finished_at = Some(Timestamp::now());
     }
+
+    /// Mark as cancelled with an explicit code and message (distinct from a
+    /// failure, so the UI and audit trail keep the two apart).
+    pub fn cancel_with(&mut self, code: impl Into<String>, message: impl Into<String>) {
+        self.status = JobStatus::Cancelled;
+        self.error_code = Some(code.into());
+        self.error_message = Some(message.into());
+        self.finished_at = Some(Timestamp::now());
+    }
 }
 
 #[cfg(test)]
