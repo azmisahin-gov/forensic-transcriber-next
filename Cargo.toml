@@ -1,0 +1,55 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/domain",
+    "crates/integrity",
+    "crates/storage-sqlite",
+    "crates/media",
+    "crates/transcription",
+    "crates/export",
+    "crates/application",
+    "tests/integration",
+    "apps/desktop/src-tauri",
+]
+# The Tauri shell is a member so it can be built explicitly, but it is not part
+# of the default build: it pulls in the full Tauri dependency tree and must be
+# built on a machine with the WebView2 runtime for packaging.
+default-members = [
+    "crates/domain",
+    "crates/integrity",
+    "crates/storage-sqlite",
+    "crates/media",
+    "crates/transcription",
+    "crates/export",
+    "crates/application",
+    "tests/integration",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+license = "AGPL-3.0-only"
+repository = "https://github.com/azmisahin-gov/forensic-transcriber-next"
+authors = ["Forensic Transcriber Next Contributors"]
+
+[workspace.dependencies]
+ftn-domain = { path = "crates/domain" }
+ftn-integrity = { path = "crates/integrity" }
+ftn-storage = { path = "crates/storage-sqlite" }
+ftn-media = { path = "crates/media" }
+ftn-transcription = { path = "crates/transcription" }
+ftn-export = { path = "crates/export" }
+ftn-application = { path = "crates/application" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,16 @@
+[package]
+name = "ftn-export"
+description = "TXT/SRT/JSON/HTML export rendering"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ftn-domain.workspace = true
+ftn-integrity.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

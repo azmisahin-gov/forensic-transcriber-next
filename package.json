@@ -1,0 +1,15 @@
+{
+  "name": "forensic-transcriber-next",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first audio transcription and expert review workspace (Tauri 2 + Rust + React).",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "dev": "npm --prefix apps/desktop run dev",
+    "build": "npm --prefix apps/desktop run build",
+    "lint": "npm --prefix apps/desktop run lint",
+    "typecheck": "npm --prefix apps/desktop run typecheck",
+    "test": "npm --prefix apps/desktop run test",
+    "tauri": "npm --prefix apps/desktop run tauri"
+  }
+}

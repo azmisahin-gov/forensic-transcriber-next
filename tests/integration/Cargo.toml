@@ -1,0 +1,23 @@
+[package]
+name = "ftn-integration-tests"
+description = "End-to-end and resilience tests for Forensic Transcriber Next"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+ftn-domain.workspace = true
+ftn-integrity.workspace = true
+ftn-storage.workspace = true
+ftn-media.workspace = true
+ftn-transcription.workspace = true
+ftn-export.workspace = true
+ftn-application.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

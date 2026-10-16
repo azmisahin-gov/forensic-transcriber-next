@@ -1,0 +1,34 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Tauri
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# Models and media assets are never committed
+*.bin
+*.ggml
+*.gguf
+models/
+vendor/
+
+# Local workspace data
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+data/
+.ftn/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
