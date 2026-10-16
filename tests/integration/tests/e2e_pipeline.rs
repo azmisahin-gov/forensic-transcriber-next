@@ -109,8 +109,13 @@ fn fake_segments() -> Vec<RawSegment> {
 /// Generate a one-second 16 kHz mono WAV using FFmpeg. Returns the path, or
 /// `None` when FFmpeg is unavailable (the caller then skips the test).
 fn generate_wav(dir: &Path) -> Option<(PathBuf, FfmpegPaths)> {
+    generate_wav_at(dir, 16000)
+}
+
+/// Generate a one-second mono WAV at the given sample rate.
+fn generate_wav_at(dir: &Path, rate: u32) -> Option<(PathBuf, FfmpegPaths)> {
     let ffmpeg = FfmpegPaths::resolve(None, None).ok()?;
-    let out = dir.join("ornek-kayit.wav");
+    let out = dir.join(format!("ornek-{rate}.wav"));
     let status = Command::new(&ffmpeg.ffmpeg)
         .args([
             "-hide_banner",
@@ -119,7 +124,7 @@ fn generate_wav(dir: &Path) -> Option<(PathBuf, FfmpegPaths)> {
             "-f",
             "lavfi",
             "-i",
-            "anullsrc=r=16000:cl=mono",
+            &format!("anullsrc=r={rate}:cl=mono"),
             "-t",
             "1",
             "-c:a",
@@ -317,6 +322,42 @@ fn transcript_is_not_overwritten_by_a_second_run() {
         )
         .unwrap_err();
     assert_eq!(second.code(), "TRANSCRIPT_EXISTS");
+}
+
+#[test]
+fn transcode_path_is_exercised_for_non_16k_input() {
+    let tmp = tempfile::tempdir().unwrap();
+    let Some((wav, media)) = generate_wav_at(tmp.path(), 22050) else {
+        eprintln!("SKIP transcode_path: ffmpeg not available");
+        return;
+    };
+    let data_dir = tmp.path().join("data");
+    let mut ws = Workspace::open(&data_dir, new_engine(fake_segments()))
+        .unwrap()
+        .with_media(Some(media));
+    let case = ws.create_case("Dönüştür").unwrap();
+    let evidence = ws.import_evidence(&case.id, &wav).unwrap();
+    assert_eq!(evidence.metadata.sample_rate, Some(22050));
+
+    // A non-16 kHz input forces the FFmpeg working-copy step; this is the path
+    // that regressed when the temp file's `.part` suffix confused the muxer.
+    let outcome = ws
+        .start_transcription(
+            &evidence.id,
+            Path::new("m.bin"),
+            false,
+            cancel(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert_eq!(outcome.segments.len(), 2);
+    assert!(
+        !ws.store()
+            .list_derived_assets(&evidence.id)
+            .unwrap()
+            .is_empty(),
+        "a derived 16 kHz asset must be recorded after transcoding"
+    );
 }
 
 #[test]

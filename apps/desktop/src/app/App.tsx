@@ -34,11 +34,14 @@ export function App() {
         </aside>
 
         <main className="app-main">
-          <PreparationPanel startup={controller.startup} />
+          <PreparationPanel controller={controller} />
           <EvidencePanel
             controller={controller}
             selectedId={selected?.id ?? null}
-            onSelect={setSelected}
+            onSelect={(evidence) => {
+              setSelected(evidence);
+              void controller.loadEvidenceTranscript(evidence.id);
+            }}
           />
           <AudioPlayer evidence={selected} />
           <TranscriptionPanel controller={controller} selected={selected} />

@@ -16,8 +16,10 @@ apps/desktop/src-tauri/gen/
 *.bin
 *.ggml
 *.gguf
+*.zip
 models/
 vendor/
+runtime/
 
 # Local workspace data
 *.sqlite

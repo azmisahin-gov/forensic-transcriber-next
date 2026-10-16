@@ -95,6 +95,13 @@ impl Workspace {
         &self.app_version
     }
 
+    /// Replace the transcription engine adapter. Used after the runtime is
+    /// installed at first launch, so a workspace opened before the engine
+    /// existed can still transcribe without a restart.
+    pub fn set_engine(&mut self, engine: Arc<dyn EngineAdapter>) {
+        self.engine = engine;
+    }
+
     // ---- cases -----------------------------------------------------------
 
     pub fn create_case(&self, title: &str) -> Result<Case, AppError> {

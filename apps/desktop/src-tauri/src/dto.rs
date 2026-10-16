@@ -219,7 +219,8 @@ pub struct EngineProbeDto {
     pub note: Option<String>,
 }
 
-/// Reported to the UI at startup so a failed workspace init is visible.
+/// Reported to the UI at startup so a failed workspace init is visible, and so
+/// the preparation flow can show what is present and what can be downloaded.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartupStatusDto {
@@ -229,4 +230,19 @@ pub struct StartupStatusDto {
     pub engine_available: bool,
     pub engine_version: Option<String>,
     pub engine_note: Option<String>,
+    pub engine_path: Option<String>,
+    pub engine_version_label: String,
+    pub model_available: bool,
+    pub model_path: Option<String>,
+    pub models_dir: String,
+    pub models: Vec<ModelDto>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelDto {
+    pub id: String,
+    pub label: String,
+    pub size_bytes: u64,
+    pub installed: bool,
 }

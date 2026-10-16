@@ -61,7 +61,13 @@ Uzak içerik yüklenmez; uzaktan çalışan kod yoktur.
 
 ## Ağ
 
-- Uygulama başlangıcında hiçbir ağ çağrısı yapılmaz.
-- Telemetri varsayılan olarak kapalıdır ve hiçbir telemetri toplanmaz.
-- Gelecekte model indirme eklenirse ayrı, açık kullanıcı eylemi ve doğrulanabilir
-  bir model manifesti gerektirir.
+- Uygulama başlangıcında hiçbir ağ çağrısı yapılmaz; telemetri yoktur.
+- İlk kurulumdaki **motor ve model indirmeleri** yalnızca kullanıcının açık
+  eylemiyle başlar. Kaynaklar sabittir:
+  - Motor: `github.com/ggml-org/whisper.cpp` resmî `v1.9.2` sürüm arşivi
+    (`whisper-bin-x64.zip`, pinlenmiş SHA-256).
+  - Model: `huggingface.co/ggerganov/whisper.cpp` resmî GGML dosyası (pinlenmiş
+    SHA-256).
+- İndirilen dosyanın SHA-256'sı eşleşmezse dosya reddedilir ve kullanılmaz.
+- Model bir kez doğrulandıktan sonra transkripsiyon çevrimdışı çalışır.
+- Ses kayıtları ve transkriptler hiçbir koşulda ağa gönderilmez.

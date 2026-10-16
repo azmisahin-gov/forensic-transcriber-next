@@ -66,12 +66,22 @@ export const api = {
   verifyEvidence: (evidenceId: string) =>
     call<string>("verify_evidence", { evidenceId }),
 
-  transcribe: (evidenceId: string, modelPath: string, useGpu: boolean) =>
+  transcribe: (
+    evidenceId: string,
+    modelPath: string | null,
+    useGpu: boolean,
+    language?: string,
+  ) =>
     call<TranscriptionOutcomeDto>("transcribe", {
       evidenceId,
       modelPath,
       useGpu,
+      language,
     }),
+  prepareEngine: () => call<StartupStatusDto>("prepare_engine"),
+  downloadModel: (modelId: string) =>
+    call<StartupStatusDto>("download_model", { modelId }),
+  cancelPreparation: () => call<boolean>("cancel_preparation"),
   cancelTranscription: (jobId: string) =>
     call<boolean>("cancel_transcription", { jobId }),
   jobStatus: (jobId: string) => call<JobDto | null>("job_status", { jobId }),
@@ -110,6 +120,13 @@ export interface StageEvent {
 }
 
 /** Startup diagnostics reported by the Rust core. */
+export interface ModelOption {
+  id: string;
+  label: string;
+  sizeBytes: number;
+  installed: boolean;
+}
+
 export interface StartupStatusDto {
   ok: boolean;
   error: string | null;
@@ -117,6 +134,19 @@ export interface StartupStatusDto {
   engineAvailable: boolean;
   engineVersion: string | null;
   engineNote: string | null;
+  enginePath: string | null;
+  engineVersionLabel: string;
+  modelAvailable: boolean;
+  modelPath: string | null;
+  modelsDir: string;
+  models: ModelOption[];
+}
+
+/** Runtime download progress payload. */
+export interface RuntimeProgressEvent {
+  stage: string;
+  downloaded: number;
+  total: number;
 }
 
 /** Extensions offered by the native file picker. */
@@ -176,6 +206,15 @@ export function onTranscriptionStage(
   handler: (event: StageEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<StageEvent>("transcription:stage", (event) =>
+    handler(event.payload),
+  );
+}
+
+/** Subscribe to engine/model download progress. Returns an unlisten function. */
+export function onRuntimeProgress(
+  handler: (event: RuntimeProgressEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<RuntimeProgressEvent>("runtime:progress", (event) =>
     handler(event.payload),
   );
 }

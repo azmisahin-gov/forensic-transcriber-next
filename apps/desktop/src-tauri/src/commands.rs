@@ -13,10 +13,11 @@ use serde::Serialize;
 use tauri::{Emitter, State};
 
 use crate::dto::{
-    CaseDto, EngineProbeDto, EvidenceDto, ExportRecordDto, JobDto, SegmentDto, StartupStatusDto,
-    TranscriptDto, TranscriptionOutcomeDto,
+    CaseDto, EngineProbeDto, EvidenceDto, ExportRecordDto, JobDto, ModelDto, SegmentDto,
+    StartupStatusDto, TranscriptDto, TranscriptionOutcomeDto,
 };
 use crate::error::CommandError;
+use crate::runtime;
 use crate::state::AppState;
 
 /// Event channel names consumed by the frontend.
@@ -37,6 +38,14 @@ struct StagePayload {
     stage: String,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeProgressPayload {
+    stage: String,
+    downloaded: u64,
+    total: u64,
+}
+
 /// Map a poisoned lock into a safe, stable error.
 fn lock_err<T>(_: std::sync::PoisonError<T>) -> CommandError {
     CommandError::new(
@@ -45,10 +54,30 @@ fn lock_err<T>(_: std::sync::PoisonError<T>) -> CommandError {
     )
 }
 
-/// Report whether the workspace opened and whether an engine is configured.
-#[tauri::command]
-pub fn startup_status(state: State<'_, AppState>) -> StartupStatusDto {
+fn build_status(state: &AppState) -> StartupStatusDto {
     let probe = state.engine_adapter().probe();
+    let models_dir = runtime::models_dir(&state.data_dir_path());
+    let installed: Vec<std::path::PathBuf> = std::fs::read_dir(&models_dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("bin"))
+                .collect()
+        })
+        .unwrap_or_default();
+    let models = runtime::MODELS
+        .iter()
+        .map(|spec| ModelDto {
+            id: spec.id.to_string(),
+            label: spec.label.to_string(),
+            size_bytes: spec.size_bytes,
+            installed: installed
+                .iter()
+                .any(|p| p.file_name().and_then(|n| n.to_str()) == Some(spec.file)),
+        })
+        .collect();
+
     StartupStatusDto {
         ok: state.is_ready(),
         error: state.startup_error(),
@@ -56,6 +85,100 @@ pub fn startup_status(state: State<'_, AppState>) -> StartupStatusDto {
         engine_available: probe.available,
         engine_version: probe.version,
         engine_note: probe.note,
+        engine_path: state.engine_path().map(|p| p.display().to_string()),
+        engine_version_label: runtime::ENGINE_VERSION.to_string(),
+        model_available: state.model_path().is_some(),
+        model_path: state.model_path().map(|p| p.display().to_string()),
+        models_dir: models_dir.display().to_string(),
+        models,
+    }
+}
+
+/// Report whether the workspace opened, what runtime is present, and which
+/// models can be downloaded.
+#[tauri::command]
+pub fn startup_status(state: State<'_, AppState>) -> StartupStatusDto {
+    build_status(&state)
+}
+
+/// Download and install the whisper.cpp engine on first use.
+#[tauri::command]
+pub async fn prepare_engine(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<StartupStatusDto, CommandError> {
+    let data_dir = state.data_dir_path();
+    let cancel_map = state.prepare_cancel();
+    let cancel = cancel_token();
+    *cancel_map.lock().map_err(lock_err)? = Some(cancel.clone());
+
+    let app_task = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        runtime::install_engine(&data_dir, &cancel, |stage, downloaded, total| {
+            let _ = app_task.emit(
+                "runtime:progress",
+                RuntimeProgressPayload {
+                    stage: stage.to_string(),
+                    downloaded,
+                    total,
+                },
+            );
+        })
+    })
+    .await
+    .map_err(|e| CommandError::new("JOIN_ERROR", e.to_string()))?;
+
+    *cancel_map.lock().map_err(lock_err)? = None;
+    let binary = result.map_err(|e| CommandError::new("RUNTIME_ERROR", e.to_string()))?;
+    state.set_engine_path(binary);
+    Ok(build_status(&state))
+}
+
+/// Download a model by id.
+#[tauri::command]
+pub async fn download_model(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    model_id: String,
+) -> Result<StartupStatusDto, CommandError> {
+    let data_dir = state.data_dir_path();
+    let cancel_map = state.prepare_cancel();
+    let cancel = cancel_token();
+    *cancel_map.lock().map_err(lock_err)? = Some(cancel.clone());
+
+    let app_task = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        runtime::install_model(&data_dir, &model_id, &cancel, |stage, downloaded, total| {
+            let _ = app_task.emit(
+                "runtime:progress",
+                RuntimeProgressPayload {
+                    stage: stage.to_string(),
+                    downloaded,
+                    total,
+                },
+            );
+        })
+    })
+    .await
+    .map_err(|e| CommandError::new("JOIN_ERROR", e.to_string()))?;
+
+    *cancel_map.lock().map_err(lock_err)? = None;
+    let path = result.map_err(|e| CommandError::new("RUNTIME_ERROR", e.to_string()))?;
+    state.set_model_path(path);
+    Ok(build_status(&state))
+}
+
+/// Cancel an in-progress engine or model download.
+#[tauri::command]
+pub fn cancel_preparation(state: State<'_, AppState>) -> Result<bool, CommandError> {
+    let cancel_map = state.prepare_cancel();
+    let guard = cancel_map.lock().map_err(lock_err)?;
+    match guard.as_ref() {
+        Some(token) => {
+            token.store(true, Ordering::Relaxed);
+            Ok(true)
+        }
+        None => Ok(false),
     }
 }
 
@@ -130,18 +253,34 @@ pub async fn transcribe(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     evidence_id: String,
-    model_path: String,
+    model_path: Option<String>,
     use_gpu: bool,
+    language: Option<String>,
 ) -> Result<TranscriptionOutcomeDto, CommandError> {
     let workspace = state.workspace()?;
     let jobs = state.jobs();
     let evidence_id = EvidenceId::from_string(evidence_id);
-    let model = PathBuf::from(model_path);
+
+    let model = match model_path {
+        Some(p) if !p.trim().is_empty() => PathBuf::from(p),
+        _ => state.model_path().ok_or_else(|| {
+            CommandError::new(
+                "MODEL_NOT_FOUND",
+                "Transkripsiyon modeli bulunamadı. Hazırlık ekranından indirin.",
+            )
+        })?,
+    };
 
     // Short phase: validate, create the job, build the plan.
     let plan = {
         let mut ws = workspace.lock().map_err(lock_err)?;
-        ws.begin_transcription(&evidence_id, &model, use_gpu)?
+        let mut plan = ws.begin_transcription(&evidence_id, &model, use_gpu)?;
+        if let Some(lang) = language {
+            if !lang.trim().is_empty() {
+                plan.request.language = lang;
+            }
+        }
+        plan
     };
     let job_id = plan.job_id();
 

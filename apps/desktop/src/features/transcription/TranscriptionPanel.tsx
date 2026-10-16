@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { WorkspaceController } from "../../hooks/useWorkspace";
-import { api } from "../../services/ipc";
-import type { EngineProbeDto, EvidenceDto } from "../../types";
+import type { EvidenceDto } from "../../types";
 
-/** Transcribe the selected evidence and show engine availability honestly. */
+/**
+ * Start, monitor and cancel a real transcription job. Engine and model are
+ * detected or installed automatically; the user never types a path.
+ */
 export function TranscriptionPanel({
   controller,
   selected,
@@ -12,46 +14,26 @@ export function TranscriptionPanel({
   controller: WorkspaceController;
   selected: EvidenceDto | null;
 }) {
-  const [modelPath, setModelPath] = useState("");
+  const { busy, transcript, activeJobId, progress, startup } = controller;
   const [useGpu, setUseGpu] = useState(false);
-  const [probe, setProbe] = useState<EngineProbeDto | null>(null);
-  const { busy, transcript, activeJobId, progress } = controller;
 
-  useEffect(() => {
-    api
-      .engineProbe()
-      .then(setProbe)
-      .catch(() => setProbe({ available: false, version: null, note: "Sorgulanamadı" }));
-  }, []);
+  const engineReady = Boolean(startup?.engineAvailable);
+  const modelReady = Boolean(startup?.modelAvailable);
+  const ready = engineReady && modelReady;
+
+  const statusText = ready
+    ? `Motor hazır: whisper.cpp${startup?.engineVersion ? ` (${startup.engineVersion})` : ""} · Model: ${
+        startup?.modelPath?.split(/[\\/]/).pop() ?? "hazır"
+      }`
+    : !engineReady
+      ? "Motor kurulu değil. Yukarıdaki hazırlık bölümünden indirin."
+      : "Model indirilmedi. Yukarıdaki hazırlık bölümünden indirin.";
 
   return (
     <section className="panel transcription-panel" aria-labelledby="transcription-heading">
-      <h2 id="transcription-heading">Transkripsiyon</h2>
+      <h2 id="transcription-heading">Yazıya çevir</h2>
 
-      {probe ? (
-        <p className={probe.available ? "engine-status ok" : "engine-status warn"}>
-          Motor: whisper.cpp —{" "}
-          {probe.available
-            ? `hazır${probe.version ? ` (${probe.version})` : ""}`
-            : `kullanılamıyor${probe.note ? ` — ${probe.note}` : ""}`}
-        </p>
-      ) : (
-        <p className="engine-status">Motor durumu kontrol ediliyor…</p>
-      )}
-
-      <div className="row">
-        <label className="sr-only" htmlFor="model-path">
-          Model dosyası yolu
-        </label>
-        <input
-          id="model-path"
-          type="text"
-          placeholder="Model yolu (ör. C:\\modeller\\ggml-large-v3-turbo-q5_0.bin)"
-          value={modelPath}
-          onChange={(e) => setModelPath(e.target.value)}
-          disabled={busy}
-        />
-      </div>
+      <p className={ready ? "engine-status ok" : "engine-status warn"}>{statusText}</p>
 
       <div className="row">
         <label className="checkbox">
@@ -65,13 +47,13 @@ export function TranscriptionPanel({
         </label>
         <button
           type="button"
-          disabled={busy || !selected || modelPath.trim().length === 0}
+          className="primary"
+          disabled={busy || !selected || !ready}
           onClick={() =>
-            selected &&
-            void controller.transcribe(selected.id, modelPath.trim(), useGpu)
+            selected && void controller.transcribe(selected.id, null, useGpu, "tr")
           }
         >
-          Transkripsiyon başlat
+          Yazıya çevir
         </button>
         <button
           type="button"
@@ -80,14 +62,11 @@ export function TranscriptionPanel({
         >
           İptal
         </button>
-        <button
-          type="button"
-          disabled={busy || !selected}
-          onClick={() => selected && void controller.verifyEvidence(selected.id)}
-        >
-          Bütünlüğü doğrula
-        </button>
       </div>
+
+      {!selected ? (
+        <p className="muted">Yazıya çevirmek için önce bir kanıt seçin.</p>
+      ) : null}
 
       {activeJobId ? (
         <div className="progress" role="progressbar" aria-label="Transkripsiyon ilerlemesi">
@@ -105,7 +84,8 @@ export function TranscriptionPanel({
 
       {transcript ? (
         <p className="engine-status ok">
-          Motor: {transcript.engine ?? "—"} · Model: {transcript.modelId ?? "—"}
+          Transkript hazır · Motor: {transcript.engine ?? "—"} · Model:{" "}
+          {transcript.modelId ?? "—"}
         </p>
       ) : null}
     </section>

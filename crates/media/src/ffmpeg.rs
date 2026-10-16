@@ -141,6 +141,10 @@ pub fn transcode_to_16k_mono_wav(
         "16000".to_string(),
         "-c:a".to_string(),
         "pcm_s16le".to_string(),
+        // The temp file uses a `.part` suffix, so the muxer cannot be inferred
+        // from the extension; state it explicitly.
+        "-f".to_string(),
+        "wav".to_string(),
         tmp.display().to_string(),
     ];
     let output_result = Command::new(ffmpeg)

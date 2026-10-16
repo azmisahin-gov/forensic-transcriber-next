@@ -18,19 +18,47 @@ kavramsal referans olarak incelenmiştir.
 
 | Alan | Durum |
 | --- | --- |
-| Rust çekirdeği (domain/integrity/storage/media/transcription/export/application) | Çalışıyor, 84 test |
+| Rust çekirdeği (domain/integrity/storage/media/transcription/export/application) | Çalışıyor, 85 test |
 | Uçtan uca akış (vaka→içe aktarma→hash→transkripsiyon→düzenleme→dışa aktarma→yeniden açma) | Çalışıyor (gerçek FFmpeg, sahte motor) |
 | Tauri 2 masaüstü kabuğu | Derleniyor, açılıyor ve gerçek arayüzü çiziyor (Windows 11'de doğrulandı) |
 | Arka plan transkripsiyon + ilerleme/iptal | Çalışıyor (gerçek süreç olaylarına bağlı) |
 | Yerel dosya seçme penceresi | Çalışıyor (tauri-plugin-dialog) |
 | Ses oynatma + zaman çizgisi | Çalışıyor (asset protokolü, gerçek `<audio>`; dalga biçimi henüz yok) |
-| Motor yokken hazırlık ekranı | Çalışıyor (dürüst kurulum yönlendirmesi) |
+| Motor yokken hazırlık ekranı | Çalışıyor — uygulama içinden indirme (hash doğrulamalı) |
+| whisper.cpp motoru + model otomatik algılama | Çalışıyor (uygulama dizini, veri dizini, PATH) |
+| İlk kurulumda motor + model indirme | Çalışıyor (pinlenmiş SHA-256 ile doğrulanır; sonrası çevrimdışı) |
+| Windows yükleyicisi (NSIS + MSI) | Üretiliyor (`npm run tauri -- build`) |
+| **Gerçek Türkçe transkripsiyon (uçtan uca)** | Gerçek whisper.cpp + base model ile doğrulandı (Türkçe metin üretildi) |
 | Başlangıç hatası dayanıklılığı | Uygulama açılır, hata banner'ı gösterilir |
-| React/TS arayüzü | typecheck + build + 22 test geçiyor |
-| whisper.cpp uçtan uca gerçek transkripsiyon | **Doğrulanmadı** — bu ortamda `whisper-cli`/model yok; gated test var |
-| Arama, yedekleme, `.ftcase` arşivi, ikinci inceleme, paketleme/imzalama | **Henüz yok** (yol haritasında) |
+| React/TS arayüzü | typecheck + build + 24 test geçiyor |
+| Arama, yedekleme, `.ftcase` arşivi, ikinci inceleme | **Henüz yok** (yol haritasında) |
+| Kod imzalama | **Yok** — imzalı gibi davranılmıyor |
 
 Ayrıntılı aşama durumu ve bilinen sınırlamalar için `docs/` altına bakın.
+
+---
+
+## Kurulum (son kullanıcı, teknik bilgi gerekmez)
+
+1. `Forensic Transcriber Next_0.1.0_x64-setup.exe` (NSIS) yükleyicisini
+   çalıştırın. Node.js, Rust, Cargo, Visual Studio veya komut satırı
+   **gerekmez**; arayüz ve kabuk uygulamaya gömülüdür.
+2. Uygulamayı açın. İlk açılışta **İlk kurulum** bölümü görünür:
+   - **Motoru indir** — whisper.cpp Windows CPU sürümü indirilir, SHA-256 ile
+     doğrulanır ve çıkarılır.
+   - **Model indir** — çok dilli bir GGML modeli (varsayılan: base) indirilir ve
+     SHA-256 ile doğrulanır.
+   İnternet **yalnızca** bu indirmeler için kullanılır. Ses kayıtlarınız hiçbir
+   zaman uzak bir servise gönderilmez.
+3. İndirme tamamlandıktan sonra uygulama tamamen **çevrimdışı** çalışır.
+4. **Yeni Vaka** → **Dosya seç ve içe aktar** → **Yazıya çevir** → transkripti
+   inceleyin/düzenleyin → **Dışa aktar** (TXT/SRT/JSON/HTML).
+
+Vaka verisi varsayılan olarak `%APPDATA%\gov.azmisahin.forensictranscribernext`
+altında tutulur. `FTN_DATA_DIR` ile değiştirilebilir.
+
+> Yükleyici **kod imzalı değildir**; Windows SmartScreen ilk açılışta uyarabilir.
+> İmzalı gibi davranılmaz.
 
 ---
 
@@ -111,7 +139,7 @@ Doğru kullanımlar:
 ```powershell
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test                     # çekirdek + entegrasyon (84 test)
+cargo test                     # çekirdek + entegrasyon (85 test)
 
 cd apps/desktop
 npm run lint

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
   api,
+  onRuntimeProgress,
   onTranscriptionProgress,
   onTranscriptionStage,
   type ApiError,
@@ -32,13 +33,23 @@ export interface WorkspaceController {
   progress: number | null;
   /** Startup diagnostics (workspace + engine availability). */
   startup: StartupStatusDto | null;
+  /** True while an engine/model download is running. */
+  runtimeBusy: boolean;
+  /** Latest runtime download fraction in [0,1], or null when unknown. */
+  runtimeProgress: number | null;
+  prepareEngine: () => Promise<void>;
+  downloadModel: (modelId: string) => Promise<void>;
+  cancelPreparation: () => Promise<void>;
+  refreshStatus: () => Promise<void>;
   notice: Notice | null;
   refreshCases: () => Promise<void>;
   createCase: (title: string) => Promise<void>;
   openCase: (id: string) => Promise<void>;
+  /** Load the stored transcript for an evidence, if one exists. */
+  loadEvidenceTranscript: (evidenceId: string) => Promise<void>;
   importEvidence: (path: string) => Promise<void>;
   verifyEvidence: (id: string) => Promise<void>;
-  transcribe: (evidenceId: string, modelPath: string, useGpu: boolean) => Promise<void>;
+  transcribe: (evidenceId: string, modelPath: string | null, useGpu: boolean, language?: string) => Promise<void>;
   cancelTranscription: () => Promise<void>;
   editSegment: (segmentId: string, text: string) => Promise<void>;
   exportTranscript: (format: string) => Promise<void>;
@@ -65,6 +76,8 @@ export function useWorkspace(): WorkspaceController {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [startup, setStartup] = useState<StartupStatusDto | null>(null);
+  const [runtimeBusy, setRuntimeBusy] = useState(false);
+  const [runtimeProgress, setRuntimeProgress] = useState<number | null>(null);
 
   const refreshCases = useCallback(async () => {
     setCases(await api.listCases());
@@ -74,12 +87,28 @@ export function useWorkspace(): WorkspaceController {
     refreshCases().catch((error: unknown) => setNotice(toNotice(error)));
   }, [refreshCases]);
 
-  // Load startup diagnostics (workspace + engine availability).
+  const refreshStatus = useCallback(async () => {
+    setStartup(await api.startupStatus());
+  }, []);
+
   useEffect(() => {
-    api
-      .startupStatus()
-      .then(setStartup)
-      .catch(() => setStartup(null));
+    refreshStatus().catch(() => setStartup(null));
+  }, [refreshStatus]);
+
+  // Runtime (engine/model) download progress.
+  useEffect(() => {
+    const unlisteners: Array<() => void> = [];
+    let disposed = false;
+    void onRuntimeProgress((event) => {
+      setRuntimeProgress(event.total > 0 ? event.downloaded / event.total : null);
+    }).then((unlisten) => {
+      if (disposed) unlisten();
+      else unlisteners.push(unlisten);
+    });
+    return () => {
+      disposed = true;
+      unlisteners.forEach((unlisten) => unlisten());
+    };
   }, []);
 
   // Subscribe to the Rust core's transcription events for the component's life.
@@ -157,6 +186,21 @@ export function useWorkspace(): WorkspaceController {
     [run, loadCaseDetail],
   );
 
+  const loadEvidenceTranscript = useCallback(
+    (evidenceId: string) =>
+      run(async () => {
+        const existing = await api.transcriptForEvidence(evidenceId);
+        if (existing) {
+          setTranscript(existing);
+          setSegments(await api.listSegments(existing.id));
+        } else {
+          setTranscript(null);
+          setSegments([]);
+        }
+      }),
+    [run],
+  );
+
   const importEvidence = useCallback(
     (path: string) =>
       run(async () => {
@@ -187,9 +231,9 @@ export function useWorkspace(): WorkspaceController {
   );
 
   const transcribe = useCallback(
-    (evidenceId: string, modelPath: string, useGpu: boolean) =>
+    (evidenceId: string, modelPath: string | null, useGpu: boolean, language?: string) =>
       run(async () => {
-        const outcome = await api.transcribe(evidenceId, modelPath, useGpu);
+        const outcome = await api.transcribe(evidenceId, modelPath, useGpu, language);
         setTranscript(outcome.transcript);
         setSegments(outcome.segments);
         setActiveJobId(null);
@@ -254,6 +298,50 @@ export function useWorkspace(): WorkspaceController {
 
   const dismissNotice = useCallback(() => setNotice(null), []);
 
+  const prepareEngine = useCallback(
+    (): Promise<void> =>
+      run(async () => {
+        setRuntimeBusy(true);
+        try {
+          const status = await api.prepareEngine();
+          setStartup(status);
+          setNotice({ kind: "info", message: "Transkripsiyon motoru kuruldu." });
+        } finally {
+          setRuntimeBusy(false);
+          setRuntimeProgress(null);
+        }
+      }),
+    [run],
+  );
+
+  const downloadModel = useCallback(
+    (modelId: string): Promise<void> =>
+      run(async () => {
+        setRuntimeBusy(true);
+        try {
+          const status = await api.downloadModel(modelId);
+          setStartup(status);
+          setNotice({ kind: "info", message: "Model indirildi ve doğrulandı." });
+        } finally {
+          setRuntimeBusy(false);
+          setRuntimeProgress(null);
+        }
+      }),
+    [run],
+  );
+
+  const cancelPreparation = useCallback(
+    (): Promise<void> =>
+      run(async () => {
+        const requested = await api.cancelPreparation();
+        setNotice({
+          kind: "info",
+          message: requested ? "İndirme iptal edildi." : "Etkin indirme yok.",
+        });
+      }),
+    [run],
+  );
+
   return {
     cases,
     activeCase,
@@ -265,10 +353,17 @@ export function useWorkspace(): WorkspaceController {
     activeJobId,
     progress,
     startup,
+    runtimeBusy,
+    runtimeProgress,
+    prepareEngine,
+    downloadModel,
+    cancelPreparation,
+    refreshStatus,
     notice,
     refreshCases,
     createCase,
     openCase,
+    loadEvidenceTranscript,
     importEvidence,
     verifyEvidence,
     transcribe,

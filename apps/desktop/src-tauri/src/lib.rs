@@ -6,6 +6,7 @@
 mod commands;
 mod dto;
 mod error;
+mod runtime;
 mod state;
 
 pub use error::CommandError;
@@ -26,6 +27,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::startup_status,
+            commands::prepare_engine,
+            commands::download_model,
+            commands::cancel_preparation,
             commands::list_cases,
             commands::create_case,
             commands::get_case,
