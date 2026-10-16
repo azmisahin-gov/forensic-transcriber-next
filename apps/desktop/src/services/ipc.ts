@@ -1,7 +1,8 @@
 // The only bridge to the Rust core. Every call goes through `invoke`; there is
 // no direct filesystem or SQLite access from the browser context.
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 
 import type {
   CaseDto,
@@ -93,6 +94,7 @@ export const api = {
     }),
 
   engineProbe: () => call<EngineProbeDto>("engine_probe"),
+  startupStatus: () => call<StartupStatusDto>("startup_status"),
 };
 
 /** Progress event payload emitted by the Rust core. */
@@ -105,6 +107,59 @@ export interface ProgressEvent {
 export interface StageEvent {
   jobId: string;
   stage: string;
+}
+
+/** Startup diagnostics reported by the Rust core. */
+export interface StartupStatusDto {
+  ok: boolean;
+  error: string | null;
+  dataDir: string;
+  engineAvailable: boolean;
+  engineVersion: string | null;
+  engineNote: string | null;
+}
+
+/** Extensions offered by the native file picker. */
+const AUDIO_EXTENSIONS = [
+  "wav",
+  "mp3",
+  "m4a",
+  "m4b",
+  "flac",
+  "ogg",
+  "oga",
+  "opus",
+  "aac",
+  "wma",
+  "aiff",
+  "aif",
+  "amr",
+  "mp4",
+  "mov",
+  "mkv",
+  "webm",
+];
+
+/**
+ * Open the native file picker for an audio/video file. Returns the selected
+ * absolute path, or null when the user cancels.
+ */
+export async function pickAudioFile(): Promise<string | null> {
+  const selected = await open({
+    multiple: false,
+    directory: false,
+    title: "Ses dosyası seç",
+    filters: [{ name: "Ses / Video", extensions: AUDIO_EXTENSIONS }],
+  });
+  return typeof selected === "string" ? selected : null;
+}
+
+/**
+ * Build a URL for the asset protocol that streams a managed evidence copy. Only
+ * the app data directory is exposed, and the path always comes from the backend.
+ */
+export function mediaSrc(storedPath: string): string {
+  return convertFileSrc(storedPath);
 }
 
 /** Subscribe to transcription progress. Returns an unlisten function. */

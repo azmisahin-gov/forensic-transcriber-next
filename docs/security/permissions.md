@@ -5,21 +5,34 @@
 `apps/desktop/src-tauri/capabilities/default.json` yalnızca şunu verir:
 
 ```json
-{ "permissions": ["core:default"] }
+{ "permissions": ["core:default", "dialog:allow-open"] }
 ```
 
-- Dosya sistemi (`fs`), kabuk (`shell`), diyalog (`dialog`) ve HTTP (`http`)
-  eklentileri **kullanılmaz** ve yetkisi verilmez.
+- `dialog:allow-open` yalnızca **açma** penceresine izin verir; kaydetme,
+  mesaj veya onay diyalogları verilmez.
+- Dosya sistemi (`fs`), kabuk (`shell`) ve HTTP (`http`) eklentileri
+  **kullanılmaz** ve yetkisi verilmez.
 - Renderer genel amaçlı dosya sistemi veya süreç çalıştırma yetkisine sahip
   değildir.
+
+## Asset protokolü (ses oynatma)
+
+- `assetProtocol.enable = true` ve başlangıçta **boş kapsam** (scope) ile açılır.
+- Çalışma zamanında yalnızca yapılandırılmış veri dizini
+  (`app.asset_protocol_scope().allow_directory(data_dir, true)`) eklenir.
+- Yol her zaman backend'den gelir; kullanıcı yolu renderer'da URL'e
+  dönüştürülmez.
+- Böylece yalnızca yönetilen kanıt kopyaları akıtılabilir; keyfi dosyalar
+  açılamaz.
 
 ## Komut yüzeyi
 
 İzin verilen komutlar yalnızca aşağıdakilerdir:
 
-`list_cases`, `create_case`, `get_case`, `list_evidence`, `import_evidence`,
-`verify_evidence`, `transcribe`, `transcript_for_evidence`, `list_segments`,
-`edit_segment`, `export_transcript`, `engine_probe`.
+`startup_status`, `list_cases`, `create_case`, `get_case`, `list_evidence`,
+`import_evidence`, `verify_evidence`, `transcribe`, `cancel_transcription`,
+`job_status`, `transcript_for_evidence`, `list_segments`, `edit_segment`,
+`export_transcript`, `engine_probe`.
 
 Her komut parametreleri doğrulanmak üzere uygulama katmanına iletir; komutun
 kendisi güvenlik doğrulaması yapmaz, UI de yapamaz.
@@ -30,7 +43,9 @@ kendisi güvenlik doğrulaması yapmaz, UI de yapamaz.
 
 ```
 default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
-img-src 'self' asset: data:; connect-src 'self' ipc: http://ipc.localhost;
+img-src 'self' asset: http://asset.localhost data:;
+media-src 'self' asset: http://asset.localhost blob:;
+connect-src 'self' ipc: http://ipc.localhost;
 object-src 'none'; base-uri 'self'; frame-ancestors 'none'
 ```
 

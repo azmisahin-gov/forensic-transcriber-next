@@ -118,3 +118,18 @@ fn cancel_token_default_is_not_cancelled() {
     let token: CancelToken = Arc::new(AtomicBool::new(false));
     assert!(!token.load(std::sync::atomic::Ordering::Relaxed));
 }
+
+#[test]
+fn opening_a_workspace_under_a_file_path_fails_clearly() {
+    let tmp = tempfile::tempdir().unwrap();
+    let blocker = tmp.path().join("blocker");
+    std::fs::write(&blocker, b"not a directory").unwrap();
+    // The data dir would be <blocker>/data, but <blocker> is a file, so the
+    // directory cannot be created. Startup must surface a clear error rather
+    // than panicking; the app layer turns this into the STARTUP_ERROR banner.
+    let result = Workspace::open(blocker.join("data"), Arc::new(NoopEngine));
+    assert!(
+        result.is_err(),
+        "a data dir that cannot be created must produce an error"
+    );
+}

@@ -13,8 +13,8 @@ use serde::Serialize;
 use tauri::{Emitter, State};
 
 use crate::dto::{
-    CaseDto, EngineProbeDto, EvidenceDto, ExportRecordDto, JobDto, SegmentDto, TranscriptDto,
-    TranscriptionOutcomeDto,
+    CaseDto, EngineProbeDto, EvidenceDto, ExportRecordDto, JobDto, SegmentDto, StartupStatusDto,
+    TranscriptDto, TranscriptionOutcomeDto,
 };
 use crate::error::CommandError;
 use crate::state::AppState;
@@ -45,22 +45,39 @@ fn lock_err<T>(_: std::sync::PoisonError<T>) -> CommandError {
     )
 }
 
+/// Report whether the workspace opened and whether an engine is configured.
+#[tauri::command]
+pub fn startup_status(state: State<'_, AppState>) -> StartupStatusDto {
+    let probe = state.engine_adapter().probe();
+    StartupStatusDto {
+        ok: state.is_ready(),
+        error: state.startup_error(),
+        data_dir: state.data_dir(),
+        engine_available: probe.available,
+        engine_version: probe.version,
+        engine_note: probe.note,
+    }
+}
+
 #[tauri::command]
 pub fn list_cases(state: State<'_, AppState>) -> Result<Vec<CaseDto>, CommandError> {
-    let ws = state.workspace.lock().map_err(lock_err)?;
+    let workspace = state.workspace()?;
+    let ws = workspace.lock().map_err(lock_err)?;
     Ok(ws.list_cases()?.iter().map(CaseDto::from).collect())
 }
 
 #[tauri::command]
 pub fn create_case(state: State<'_, AppState>, title: String) -> Result<CaseDto, CommandError> {
-    let ws = state.workspace.lock().map_err(lock_err)?;
+    let workspace = state.workspace()?;
+    let ws = workspace.lock().map_err(lock_err)?;
     let case = ws.create_case(&title)?;
     Ok(CaseDto::from(&case))
 }
 
 #[tauri::command]
 pub fn get_case(state: State<'_, AppState>, case_id: String) -> Result<CaseDto, CommandError> {
-    let ws = state.workspace.lock().map_err(lock_err)?;
+    let workspace = state.workspace()?;
+    let ws = workspace.lock().map_err(lock_err)?;
     let case = ws.get_case(&CaseId::from_string(case_id))?;
     Ok(CaseDto::from(&case))
 }
@@ -70,7 +87,8 @@ pub fn list_evidence(
     state: State<'_, AppState>,
     case_id: String,
 ) -> Result<Vec<EvidenceDto>, CommandError> {
-    let ws = state.workspace.lock().map_err(lock_err)?;
+    let workspace = state.workspace()?;
+    let ws = workspace.lock().map_err(lock_err)?;
     Ok(ws
         .list_evidence(&CaseId::from_string(case_id))?
         .iter()
@@ -84,7 +102,8 @@ pub fn import_evidence(
     case_id: String,
     path: String,
 ) -> Result<EvidenceDto, CommandError> {
-    let ws = state.workspace.lock().map_err(lock_err)?;
+    let workspace = state.workspace()?;
+    let ws = workspace.lock().map_err(lock_err)?;
     let evidence = ws.import_evidence(&CaseId::from_string(case_id), Path::new(&path))?;
     Ok(EvidenceDto::from(&evidence))
 }
@@ -94,7 +113,8 @@ pub fn verify_evidence(
     state: State<'_, AppState>,
     evidence_id: String,
 ) -> Result<String, CommandError> {
-    let ws = state.workspace.lock().map_err(lock_err)?;
+    let workspace = state.workspace()?;
+    let ws = workspace.lock().map_err(lock_err)?;
     let status = ws.verify_evidence_integrity(&EvidenceId::from_string(evidence_id))?;
     Ok(format!("{status:?}").to_uppercase())
 }
@@ -113,8 +133,8 @@ pub async fn transcribe(
     model_path: String,
     use_gpu: bool,
 ) -> Result<TranscriptionOutcomeDto, CommandError> {
-    let workspace = state.workspace.clone();
-    let jobs = state.jobs.clone();
+    let workspace = state.workspace()?;
+    let jobs = state.jobs();
     let evidence_id = EvidenceId::from_string(evidence_id);
     let model = PathBuf::from(model_path);
 
@@ -191,7 +211,8 @@ pub fn cancel_transcription(
     state: State<'_, AppState>,
     job_id: String,
 ) -> Result<bool, CommandError> {
-    let jobs = state.jobs.lock().map_err(lock_err)?;
+    let jobs = state.jobs();
+    let jobs = jobs.lock().map_err(lock_err)?;
     match jobs.get(&job_id) {
         Some(token) => {
             token.store(true, Ordering::Relaxed);
@@ -207,7 +228,8 @@ pub fn job_status(
     state: State<'_, AppState>,
     job_id: String,
 ) -> Result<Option<JobDto>, CommandError> {
-    let ws = state.workspace.lock().map_err(lock_err)?;
+    let workspace = state.workspace()?;
+    let ws = workspace.lock().map_err(lock_err)?;
     Ok(ws
         .get_job(&JobId::from_string(job_id))?
         .as_ref()
@@ -219,7 +241,8 @@ pub fn transcript_for_evidence(
     state: State<'_, AppState>,
     evidence_id: String,
 ) -> Result<Option<TranscriptDto>, CommandError> {
-    let ws = state.workspace.lock().map_err(lock_err)?;
+    let workspace = state.workspace()?;
+    let ws = workspace.lock().map_err(lock_err)?;
     Ok(ws
         .transcript_for_evidence(&EvidenceId::from_string(evidence_id))?
         .as_ref()
@@ -231,7 +254,8 @@ pub fn list_segments(
     state: State<'_, AppState>,
     transcript_id: String,
 ) -> Result<Vec<SegmentDto>, CommandError> {
-    let ws = state.workspace.lock().map_err(lock_err)?;
+    let workspace = state.workspace()?;
+    let ws = workspace.lock().map_err(lock_err)?;
     Ok(ws
         .list_segments(&TranscriptId::from_string(transcript_id))?
         .iter()
@@ -245,7 +269,8 @@ pub fn edit_segment(
     segment_id: String,
     text: String,
 ) -> Result<SegmentDto, CommandError> {
-    let mut ws = state.workspace.lock().map_err(lock_err)?;
+    let workspace = state.workspace()?;
+    let mut ws = workspace.lock().map_err(lock_err)?;
     let updated = ws.edit_segment_text(&SegmentId::from_string(segment_id), &text)?;
     Ok(SegmentDto::from(&updated))
 }
@@ -260,7 +285,8 @@ pub fn export_transcript(
     let export_format = ExportFormat::parse(&format).ok_or_else(|| {
         CommandError::new("UNKNOWN_FORMAT", format!("Bilinmeyen biçim: {format}"))
     })?;
-    let ws = state.workspace.lock().map_err(lock_err)?;
+    let workspace = state.workspace()?;
+    let ws = workspace.lock().map_err(lock_err)?;
     let record = ws.export_transcript(
         &CaseId::from_string(case_id),
         &TranscriptId::from_string(transcript_id),

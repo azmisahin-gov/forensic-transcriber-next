@@ -5,6 +5,7 @@ import {
   onTranscriptionProgress,
   onTranscriptionStage,
   type ApiError,
+  type StartupStatusDto,
 } from "../services/ipc";
 import type {
   CaseDto,
@@ -29,6 +30,8 @@ export interface WorkspaceController {
   activeJobId: string | null;
   /** Latest progress fraction in [0, 1], or null when unknown. */
   progress: number | null;
+  /** Startup diagnostics (workspace + engine availability). */
+  startup: StartupStatusDto | null;
   notice: Notice | null;
   refreshCases: () => Promise<void>;
   createCase: (title: string) => Promise<void>;
@@ -61,6 +64,7 @@ export function useWorkspace(): WorkspaceController {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
+  const [startup, setStartup] = useState<StartupStatusDto | null>(null);
 
   const refreshCases = useCallback(async () => {
     setCases(await api.listCases());
@@ -69,6 +73,14 @@ export function useWorkspace(): WorkspaceController {
   useEffect(() => {
     refreshCases().catch((error: unknown) => setNotice(toNotice(error)));
   }, [refreshCases]);
+
+  // Load startup diagnostics (workspace + engine availability).
+  useEffect(() => {
+    api
+      .startupStatus()
+      .then(setStartup)
+      .catch(() => setStartup(null));
+  }, []);
 
   // Subscribe to the Rust core's transcription events for the component's life.
   useEffect(() => {
@@ -252,6 +264,7 @@ export function useWorkspace(): WorkspaceController {
     busy,
     activeJobId,
     progress,
+    startup,
     notice,
     refreshCases,
     createCase,

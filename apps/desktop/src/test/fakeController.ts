@@ -16,6 +16,7 @@ export function makeController(
     busy: false,
     activeJobId: null,
     progress: null,
+    startup: null,
     notice: null,
     refreshCases: vi.fn().mockResolvedValue(undefined),
     createCase: vi.fn().mockResolvedValue(undefined),

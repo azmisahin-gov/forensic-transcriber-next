@@ -218,3 +218,15 @@ pub struct EngineProbeDto {
     pub version: Option<String>,
     pub note: Option<String>,
 }
+
+/// Reported to the UI at startup so a failed workspace init is visible.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartupStatusDto {
+    pub ok: bool,
+    pub error: Option<String>,
+    pub data_dir: String,
+    pub engine_available: bool,
+    pub engine_version: Option<String>,
+    pub engine_note: Option<String>,
+}

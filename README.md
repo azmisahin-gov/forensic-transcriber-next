@@ -18,13 +18,17 @@ kavramsal referans olarak incelenmiştir.
 
 | Alan | Durum |
 | --- | --- |
-| Rust çekirdeği (domain/integrity/storage/media/transcription/export/application) | Çalışıyor, test edildi |
+| Rust çekirdeği (domain/integrity/storage/media/transcription/export/application) | Çalışıyor, 84 test |
 | Uçtan uca akış (vaka→içe aktarma→hash→transkripsiyon→düzenleme→dışa aktarma→yeniden açma) | Çalışıyor (gerçek FFmpeg, sahte motor) |
-| Tauri 2 masaüstü kabuğu | Derleniyor ve açılıyor (Windows 11'de doğrulandı) |
+| Tauri 2 masaüstü kabuğu | Derleniyor, açılıyor ve gerçek arayüzü çiziyor (Windows 11'de doğrulandı) |
 | Arka plan transkripsiyon + ilerleme/iptal | Çalışıyor (gerçek süreç olaylarına bağlı) |
-| React/TS arayüzü | typecheck + build + 11 test geçiyor |
+| Yerel dosya seçme penceresi | Çalışıyor (tauri-plugin-dialog) |
+| Ses oynatma + zaman çizgisi | Çalışıyor (asset protokolü, gerçek `<audio>`; dalga biçimi henüz yok) |
+| Motor yokken hazırlık ekranı | Çalışıyor (dürüst kurulum yönlendirmesi) |
+| Başlangıç hatası dayanıklılığı | Uygulama açılır, hata banner'ı gösterilir |
+| React/TS arayüzü | typecheck + build + 22 test geçiyor |
 | whisper.cpp uçtan uca gerçek transkripsiyon | **Doğrulanmadı** — bu ortamda `whisper-cli`/model yok; gated test var |
-| Ses oynatıcı, dalga biçimi, arama, yedekleme, `.ftcase` arşivi, ikinci inceleme | **Henüz yok** (yol haritasında) |
+| Arama, yedekleme, `.ftcase` arşivi, ikinci inceleme, paketleme/imzalama | **Henüz yok** (yol haritasında) |
 
 Ayrıntılı aşama durumu ve bilinen sınırlamalar için `docs/` altına bakın.
 
@@ -75,9 +79,23 @@ npm run typecheck
 npm run test
 npm run build
 
-# Masaüstü uygulaması (geliştirme)
+# Masaüstü uygulaması (geliştirme; Vite sunucusuyla birlikte)
 npm run tauri dev
 ```
+
+### Önemli: geliştirme mi, paketlenmiş uygulama mı?
+
+Tauri, `debug`/`cargo build` çıktısını **geliştirme modu** sayar ve gömülü
+varlıklar yerine `devUrl`'e (`http://localhost:1420`) yönlenir. Bu yüzden Vite
+sunucusu çalışmıyorken tek başına `cargo build` çıktısı **boş/hatalı pencere**
+açar ("localhost bağlanmayı reddetti").
+
+Doğru kullanımlar:
+
+- Geliştirme: `cd apps/desktop && npm run tauri dev`
+- Tek başına çalışan uygulama: `cd apps/desktop && npm run tauri -- build`
+  (installer istemiyorsanız `-- --no-bundle`). Bu, varlıkları `http://tauri.localhost/`
+  altına gömer ve harici bir sunucu gerektirmez.
 
 ### Ortam değişkenleri
 
@@ -93,12 +111,12 @@ npm run tauri dev
 ```powershell
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test                     # çekirdek + entegrasyon (74 test)
+cargo test                     # çekirdek + entegrasyon (84 test)
 
 cd apps/desktop
 npm run lint
 npm run typecheck
-npm run test                   # 8 test
+npm run test                   # 22 test
 npm run build
 ```
 
