@@ -30,7 +30,7 @@ kavramsal referans olarak incelenmiştir.
 | Windows yükleyicisi (NSIS + MSI) | Üretiliyor (`npm run tauri -- build`) |
 | **Gerçek Türkçe transkripsiyon (uçtan uca)** | Gerçek whisper.cpp + base model ile doğrulandı (Türkçe metin üretildi) |
 | Başlangıç hatası dayanıklılığı | Uygulama açılır, hata banner'ı gösterilir |
-| React/TS arayüzü | typecheck + build + 24 test geçiyor |
+| React/TS arayüzü | typecheck + build + 26 test geçiyor |
 | Arama, yedekleme, `.ftcase` arşivi, ikinci inceleme | **Henüz yok** (yol haritasında) |
 | Kod imzalama | **Yok** — imzalı gibi davranılmıyor |
 
@@ -168,6 +168,21 @@ izinin içeriği için kabul edilir.
 
 Otomatik çıktı ile uzman çıktısı her zaman ayrı tutulur (`AUTOMATIC`, `REVIEWED`,
 `EDITED`, `VERIFIED`). Düzenleme otomatik metni asla silmez.
+
+---
+
+## Otomatik güncelleme ve sürüm
+
+- Uygulama, Tauri güncelleyici eklentisiyle **imzalı** güncellemeleri denetler;
+  "Hakkında ve güncellemeler" bölümünden manuel denetim de yapılabilir.
+- Güncelleme indirme ve kurma **kullanıcı onayıyla** yapılır; ertelenebilir.
+  Beklenmedik yeniden başlatma olmaz.
+- Endpoint: `https://github.com/azmisahin-gov/forensic-transcriber-next/releases/latest/download/latest.json`
+- Sürüm çıkarma: Actions → **Release (version)** (`patch`/`minor`/`major`).
+  İlk sürüm için bkz. `docs/RELEASE_PROCESS.md`.
+- **Kod imzalama yoktur**; SmartScreen uyarabilir. Updater paket imzası (minisign)
+  ile Windows Authenticode farklıdır.
+- Yan ürün sitesi: https://azmisahin-gov.github.io/forensic-transcriber-next/
 
 ---
 

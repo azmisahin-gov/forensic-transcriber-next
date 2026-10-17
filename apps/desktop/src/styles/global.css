@@ -227,6 +227,17 @@ button.ghost {
   white-space: pre-wrap;
 }
 
+.update-notes pre {
+  max-height: 12rem;
+  overflow: auto;
+  padding: 0.5rem;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  font-size: 0.8rem;
+}
+
 .row {
   display: flex;
   gap: 0.5rem;

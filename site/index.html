@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Forensic Transcriber Next — Yerel Türkçe ses transkripsiyonu</title>
+    <meta
+      name="description"
+      content="Yerel, çevrimdışı, Türkçe öncelikli ses transkripsiyonu ve uzman inceleme masaüstü uygulaması."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="./">
+          <span class="logo">FT</span>
+          <span>Forensic Transcriber Next</span>
+        </a>
+        <nav class="lang" aria-label="Dil / Language">
+          <button type="button" data-lang="tr" class="active">TR</button>
+          <button type="button" data-lang="en">EN</button>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="wrap">
+          <h1 data-tr="Ses kayıtlarını yerel olarak yazıya çevirin" data-en="Transcribe audio locally">
+            Ses kayıtlarını yerel olarak yazıya çevirin
+          </h1>
+          <p
+            class="lead"
+            data-tr="Yerel · Çevrimdışı · Türkçe öncelikli. whisper.cpp ile otomatik transkripsiyon ve uzman incelemesi. Ses kayıtlarınız cihazınızdan çıkmaz."
+            data-en="Local · Offline · Turkish-first. Automatic transcription with whisper.cpp and expert review. Your recordings never leave your machine."
+          >
+            Yerel · Çevrimdışı · Türkçe öncelikli.
+          </p>
+          <div class="cta">
+            <a
+              class="btn primary"
+              id="download-primary"
+              href="https://github.com/azmisahin-gov/forensic-transcriber-next/releases/latest"
+              data-tr="Windows için indir"
+              data-en="Download for Windows"
+              >Windows için indir</a
+            >
+            <a
+              class="btn"
+              href="https://github.com/azmisahin-gov/forensic-transcriber-next"
+              data-tr="Kaynak kodu"
+              data-en="Source code"
+              >Kaynak kodu</a
+            >
+          </div>
+          <p class="version-line">
+            <span data-tr="Son sürüm:" data-en="Latest version:">Son sürüm:</span>
+            <strong id="latest-version">—</strong>
+            <span id="version-source" class="muted"></span>
+          </p>
+          <p class="note" id="unsigned-note" data-tr="Kurulum paketi kod imzalı değildir; Windows SmartScreen uyarabilir." data-en="The installer is not code-signed; Windows SmartScreen may warn."></p>
+        </div>
+      </section>
+
+      <section class="wrap grid" id="features">
+        <article>
+          <h3 data-tr="Tamamen yerel" data-en="Fully local">Tamamen yerel</h3>
+          <p
+            data-tr="Transkripsiyon cihazınızda çalışır. Telemetri yok, hesap yok, ses yüklemesi yok. İnternet yalnızca motor/model indirmek için kullanılır."
+            data-en="Transcription runs on your device. No telemetry, no account, no audio upload. The network is used only to fetch the engine/model."
+          ></p>
+        </article>
+        <article>
+          <h3 data-tr="Kanıt bütünlüğü" data-en="Evidence integrity">Kanıt bütünlüğü</h3>
+          <p
+            data-tr="Orijinal dosya asla değiştirilmez; kopyası SHA-256 ile doğrulanır. Otomatik motor çıktısı ile uzman metni her zaman ayrı tutulur."
+            data-en="The original file is never modified; its copy is verified with SHA-256. Machine output and expert text are always kept separate."
+          ></p>
+        </article>
+        <article>
+          <h3 data-tr="Dışa aktarma" data-en="Export">Dışa aktarma</h3>
+          <p
+            data-tr="TXT, SRT, JSON ve HTML biçimlerinde dışa aktarım. JSON çıktısında açık bir şema sürümü bulunur."
+            data-en="Export to TXT, SRT, JSON and HTML. The JSON export carries an explicit schema version."
+          ></p>
+        </article>
+        <article>
+          <h3 data-tr="Motor ve model hazırlığı" data-en="Engine and model setup">Motor ve model hazırlığı</h3>
+          <p
+            data-tr="İlk açılışta motor ve model uygulama içinden indirilir ve SHA-256 ile doğrulanır. Sonrasında çevrimdışı çalışır."
+            data-en="On first launch the engine and model are downloaded in-app and verified with SHA-256. After that it works offline."
+          ></p>
+        </article>
+      </section>
+
+      <section class="wrap">
+        <h2 data-tr="Kurulum" data-en="Install">Kurulum</h2>
+        <ol class="steps">
+          <li data-tr="Yükleyiciyi çalıştırın (Node.js, Rust veya komut satırı gerekmez)." data-en="Run the installer (no Node.js, Rust or command line required)."></li>
+          <li data-tr="İlk açılışta 'Motoru indir' ve 'Model indir' düğmelerini kullanın." data-en="On first launch use “Download engine” and “Download model”."></li>
+          <li data-tr="Yeni Vaka → Dosya seç → Yazıya çevir → İncele → Dışa aktar." data-en="New case → Pick file → Transcribe → Review → Export."></li>
+        </ol>
+        <p class="note" data-tr="Vaka verisi %APPDATA%\\gov.azmisahin.forensictranscribernext altında tutulur." data-en="Case data is stored under %APPDATA%\\gov.azmisahin.forensictranscribernext."></p>
+      </section>
+
+      <section class="wrap">
+        <h2 data-tr="Çevrimdışı çalışma" data-en="Offline use">Çevrimdışı çalışma</h2>
+        <p
+          data-tr="Model bir kez indirilip doğrulandıktan sonra transkripsiyon internet olmadan çalışır. Model güncellemeleri uygulama güncellemelerinden ayrıdır."
+          data-en="Once the model is downloaded and verified, transcription works without internet. Model updates are separate from app updates."
+        ></p>
+      </section>
+
+      <section class="wrap">
+        <h2 data-tr="Bilinen sınırlamalar" data-en="Known limitations">Bilinen sınırlamalar</h2>
+        <ul class="limits">
+          <li data-tr="Konuşmacı kimlik tespiti, duygu/yalan analizi veya otomatik hukuki değerlendirme yapmaz." data-en="No speaker identification, emotion/lie analysis or automated legal assessment."></li>
+          <li data-tr="Gerçek Türkçe doğruluk (WER/CER) ölçümü yapılmadı; doğruluk yüzdesi iddia edilmez." data-en="No real Turkish accuracy (WER/CER) measurement; no accuracy percentage is claimed."></li>
+          <li data-tr="Dalga biçimi, arama, yedekleme ve vaka arşivi henüz yok." data-en="Waveform, search, backup and case archive are not yet available."></li>
+          <li data-tr="Windows yükleyicisi kod imzalı değildir." data-en="The Windows installer is not code-signed."></li>
+        </ul>
+      </section>
+
+      <section class="wrap">
+        <h2 data-tr="Gizlilik" data-en="Privacy">Gizlilik</h2>
+        <p
+          data-tr="Telemetri ve analitik yoktur. Ses kayıtları veya transkriptler hiçbir koşulda uzak bir sunucuya gönderilmez."
+          data-en="There is no telemetry or analytics. Audio recordings and transcripts are never sent to a remote server."
+        ></p>
+      </section>
+
+      <section class="wrap">
+        <h2 data-tr="Lisans ve topluluk" data-en="License and community">Lisans ve topluluk</h2>
+        <p>
+          <span data-tr="Uygulama kodu AGPL-3.0-only altındadır. whisper.cpp ve modeller kendi lisanslarına sahiptir." data-en="Application code is AGPL-3.0-only. whisper.cpp and the models have their own licenses."></span>
+        </p>
+        <p class="links">
+          <a href="https://github.com/azmisahin-gov/forensic-transcriber-next">GitHub</a>
+          <a href="https://github.com/azmisahin-gov/forensic-transcriber-next/releases" data-tr="Sürümler" data-en="Releases">Sürümler</a>
+          <a href="https://github.com/azmisahin-gov/forensic-transcriber-next/issues" data-tr="Sorun bildir" data-en="Issues">Sorun bildir</a>
+          <a href="https://github.com/azmisahin-gov/forensic-transcriber-next/blob/main/SECURITY.md" data-tr="Güvenlik" data-en="Security">Güvenlik</a>
+          <a href="https://github.com/azmisahin-gov/forensic-transcriber-next/blob/main/LICENSE">AGPL-3.0</a>
+        </p>
+      </section>
+    </main>
+
+    <footer class="wrap">
+      <p data-tr="Bu yazılım teknik bir transkripsiyon ve inceleme yardımcısıdır; tek başına adli bir kanaat oluşturmaz." data-en="This software is a technical transcription and review aid; it does not by itself constitute a forensic opinion."></p>
+    </footer>
+
+    <script src="./main.js"></script>
+  </body>
+</html>

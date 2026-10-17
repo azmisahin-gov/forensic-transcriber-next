@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Least-privilege capability for the main window. Only the core IPC surface and the native file open dialog are available; no filesystem, shell or HTTP plugin permissions are granted.",
+  "description": "Least-privilege capability for the main window. Only the core IPC surface, the native file open dialog and the updater (check/download/install + restart) are available; no filesystem, shell or HTTP plugin permissions are granted.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "permissions": ["core:default", "dialog:allow-open", "updater:default", "process:allow-restart"]
 }

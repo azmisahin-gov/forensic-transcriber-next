@@ -1,0 +1,104 @@
+name: Release (version)
+
+# Manually triggered. Computes the next version, keeps every version field in
+# sync, commits, tags, and calls the reusable Release workflow to build and
+# publish. Ordinary pushes to main never publish a release.
+on:
+  workflow_dispatch:
+    inputs:
+      type:
+        description: "Sürüm artışı (patch/minor/major)"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+      notes:
+        description: "Release notları (isteğe bağlı; boşsa otomatik)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-version
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Bump version and tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      notes: ${{ steps.bump.outputs.notes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Require a successful CI on the current main HEAD
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          read -r concl head < <(gh run list --branch main --workflow CI --limit 1 --json conclusion,headSha --jq '"\(.[0].conclusion) \(.[0].headSha)"')
+          echo "head sha=$sha; latest CI head=$head; conclusion=$concl"
+          if [ "$concl" != "success" ] || [ "$head" != "$sha" ]; then
+            echo "Refusing to release: CI has not passed on the current main HEAD."
+            exit 1
+          fi
+
+      - name: Compute the next version
+        id: bump
+        run: |
+          set -euo pipefail
+          cur="$(node -p "require('./apps/desktop/package.json').version")"
+          IFS=. read -r major minor patch <<< "$cur"
+          case "${{ inputs.type }}" in
+            major) major=$((major+1)); minor=0; patch=0 ;;
+            minor) minor=$((minor+1)); patch=0 ;;
+            *)     patch=$((patch+1)) ;;
+          esac
+          new="${major}.${minor}.${patch}"
+          node scripts/bump-version.mjs "$new"
+          node scripts/check-versions.mjs
+          echo "version=$new" >> "$GITHUB_OUTPUT"
+          if [ -n "${{ inputs.notes }}" ]; then
+            printf '%s' "${{ inputs.notes }}" > release-notes.txt
+          else
+            printf 'Forensic Transcriber Next v%s — %s release.' "$new" "${{ inputs.type }}" > release-notes.txt
+          fi
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          cat release-notes.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Commit, tag and push
+        run: |
+          set -euo pipefail
+          v="${{ steps.bump.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(release): v${v}"
+          git tag -a "v${v}" -m "Forensic Transcriber Next v${v}"
+          git push origin HEAD:main
+          git push origin "v${v}"
+
+  publish:
+    name: Build and publish
+    needs: version
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      notes: ${{ needs.version.outputs.notes }}
+    secrets: inherit

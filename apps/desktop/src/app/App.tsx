@@ -9,6 +9,7 @@ import { ExportBar } from "../features/exports/ExportBar";
 import { TranscriptEditor } from "../features/review/TranscriptEditor";
 import { PreparationPanel } from "../features/transcription/PreparationPanel";
 import { TranscriptionPanel } from "../features/transcription/TranscriptionPanel";
+import { UpdatePanel } from "../features/updates/UpdatePanel";
 import { useWorkspace } from "../hooks/useWorkspace";
 import type { EvidenceDto } from "../types";
 
@@ -47,6 +48,7 @@ export function App() {
           <TranscriptionPanel controller={controller} selected={selected} />
           <TranscriptEditor controller={controller} />
           <ExportBar controller={controller} />
+          <UpdatePanel startupDataDir={controller.startup?.dataDir ?? null} />
         </main>
       </div>
 
